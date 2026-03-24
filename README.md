@@ -1,16 +1,16 @@
 # Code Agent Usage Monitor
 
-`Code Agent Usage Monitor` is a lightweight Windows taskbar widget for tracking local Claude and Codex rate-limit usage in real time.
+Personal side project: `Code Agent Usage Monitor` is a lightweight Windows taskbar widget for tracking local Claude and Codex rate-limit usage in real time.
 
-This repository is a respectful fork of Code Zeno Pty Ltd's `Claude Code Usage Monitor`, extended for multi-agent monitoring and published with upstream attribution intact.
+This repository is a respectful fork of Code Zeno Pty Ltd's `Claude Code Usage Monitor`.
+
+I did not create the original app. This side project builds on that work, keeps the original MIT license, and adds my changes for multi-agent monitoring and project-specific packaging.
 
 It embeds into the taskbar, stays out of the way, and shows rolling-window utilization plus reset countdowns for both agents.
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Rust](https://img.shields.io/badge/language-Rust-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-![Screenshot](.github/screenshot.png)
 
 ## Features
 
@@ -89,7 +89,7 @@ src/
 
 ## Credit
 
-This project is derived from the original `Claude Code Usage Monitor` by Code Zeno Pty Ltd.
+This side project is directly derived from the original `Claude Code Usage Monitor` by Code Zeno Pty Ltd.
 
 Original upstream repository:
 
