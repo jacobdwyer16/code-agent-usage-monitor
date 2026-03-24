@@ -294,7 +294,7 @@ const CORNER_RADIUS: i32 = 2;
 
 const LEFT_DIVIDER_W: i32 = 3;
 const DIVIDER_RIGHT_MARGIN: i32 = 10;
-const LABEL_WIDTH: i32 = 22;
+const LABEL_WIDTH: i32 = 34;
 const LABEL_RIGHT_MARGIN: i32 = 8;
 const BAR_RIGHT_MARGIN: i32 = 4;
 const TEXT_WIDTH: i32 = 50;
