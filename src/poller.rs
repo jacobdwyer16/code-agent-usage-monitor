@@ -15,8 +15,6 @@ const MODEL_FALLBACK_CHAIN: &[&str] = &["claude-3-haiku-20240307", "claude-haiku
 
 #[derive(Debug)]
 pub enum PollError {
-    NoCredentials,
-    TokenExpired,
     RequestFailed,
 }
 
@@ -61,26 +59,32 @@ struct UsageBucket {
 }
 
 pub fn poll() -> Result<UsageData, PollError> {
-    let mut creds = match read_credentials() {
-        Some(c) => c,
-        None => return Err(PollError::NoCredentials),
-    };
-
-    if is_token_expired(creds.expires_at) {
-        cli_refresh_token(&creds.source);
-
-        match read_credentials_from_source(&creds.source) {
-            Some(refreshed) => creds = refreshed,
-            None => return Err(PollError::NoCredentials),
-        }
-
-        if is_token_expired(creds.expires_at) {
-            return Err(PollError::TokenExpired);
-        }
-    }
-
-    let claude = fetch_usage_with_fallback(&creds.access_token)?;
     let codex = read_codex_rate_limits().unwrap_or_default();
+    let claude = match read_credentials() {
+        Some(mut creds) => {
+            if is_token_expired(creds.expires_at) {
+                cli_refresh_token(&creds.source);
+
+                match read_credentials_from_source(&creds.source) {
+                    Some(refreshed) => creds = refreshed,
+                    None => return Ok(UsageData {
+                        claude: ProviderUsage::default(),
+                        codex,
+                    }),
+                }
+
+                if is_token_expired(creds.expires_at) {
+                    return Ok(UsageData {
+                        claude: ProviderUsage::default(),
+                        codex,
+                    });
+                }
+            }
+
+            fetch_usage_with_fallback(&creds.access_token).unwrap_or_default()
+        }
+        None => ProviderUsage::default(),
+    };
 
     Ok(UsageData { claude, codex })
 }
@@ -247,7 +251,7 @@ fn build_agent() -> Result<ureq::Agent, PollError> {
 fn fetch_usage_with_fallback(token: &str) -> Result<ProviderUsage, PollError> {
     // Try the dedicated usage endpoint first
     if let Some(data) = try_usage_endpoint(token) {
-        // If reset timers are missing, fill them in from the Messages API
+        // If reset timers are missing, fill them in from the Messages API.
         if data.session.resets_at.is_none() || data.weekly.resets_at.is_none() {
             if let Ok(fallback) = fetch_usage_via_messages(token) {
                 let mut merged = data;
@@ -263,7 +267,7 @@ fn fetch_usage_with_fallback(token: &str) -> Result<ProviderUsage, PollError> {
         return Ok(data);
     }
 
-    // Fall back to Messages API with rate limit headers
+    // Fall back to Messages API with rate limit headers.
     fetch_usage_via_messages(token)
 }
 
@@ -631,6 +635,10 @@ fn is_leap(y: u64) -> bool {
 
 /// Format a usage section as "X% · Yh" style text
 pub fn format_line(section: &UsageSection) -> String {
+    if section.resets_at.is_none() {
+        return "--".to_string();
+    }
+
     let pct = format!("{:.0}%", section.percentage);
     let cd = format_countdown(section.resets_at);
     if cd.is_empty() {

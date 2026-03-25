@@ -70,15 +70,19 @@ struct AppState {
 const RETRY_BASE_MS: u32 = 30_000; // 30 seconds
 
 const POLL_1_MIN: u32 = 60_000;
+const POLL_3_MIN: u32 = 180_000;
 const POLL_5_MIN: u32 = 300_000;
+const POLL_10_MIN: u32 = 600_000;
 const POLL_15_MIN: u32 = 900_000;
 const POLL_1_HOUR: u32 = 3_600_000;
 
 // Menu item IDs for update frequency
 const IDM_FREQ_1MIN: u16 = 10;
-const IDM_FREQ_5MIN: u16 = 11;
-const IDM_FREQ_15MIN: u16 = 12;
-const IDM_FREQ_1HOUR: u16 = 13;
+const IDM_FREQ_3MIN: u16 = 11;
+const IDM_FREQ_5MIN: u16 = 12;
+const IDM_FREQ_10MIN: u16 = 13;
+const IDM_FREQ_15MIN: u16 = 14;
+const IDM_FREQ_1HOUR: u16 = 15;
 const IDM_START_WITH_WINDOWS: u16 = 20;
 const IDM_RESET_POSITION: u16 = 30;
 const IDM_TRACKER_CLAUDE: u16 = 40;
@@ -1400,10 +1404,13 @@ unsafe extern "system" fn wnd_proc(
                         render_layered();
                     }
                 }
-                IDM_FREQ_1MIN | IDM_FREQ_5MIN | IDM_FREQ_15MIN | IDM_FREQ_1HOUR => {
+                IDM_FREQ_1MIN | IDM_FREQ_3MIN | IDM_FREQ_5MIN | IDM_FREQ_10MIN | IDM_FREQ_15MIN
+                | IDM_FREQ_1HOUR => {
                     let new_interval = match id {
                         IDM_FREQ_1MIN => POLL_1_MIN,
+                        IDM_FREQ_3MIN => POLL_3_MIN,
                         IDM_FREQ_5MIN => POLL_5_MIN,
+                        IDM_FREQ_10MIN => POLL_10_MIN,
                         IDM_FREQ_15MIN => POLL_15_MIN,
                         IDM_FREQ_1HOUR => POLL_1_HOUR,
                         _ => POLL_15_MIN,
@@ -1461,7 +1468,9 @@ fn show_context_menu(hwnd: HWND) {
         let freq_menu = CreatePopupMenu().unwrap();
         let freq_items: &[(u16, u32, &str)] = &[
             (IDM_FREQ_1MIN, POLL_1_MIN, "1 Minute"),
+            (IDM_FREQ_3MIN, POLL_3_MIN, "3 Minutes"),
             (IDM_FREQ_5MIN, POLL_5_MIN, "5 Minutes"),
+            (IDM_FREQ_10MIN, POLL_10_MIN, "10 Minutes"),
             (IDM_FREQ_15MIN, POLL_15_MIN, "15 Minutes"),
             (IDM_FREQ_1HOUR, POLL_1_HOUR, "1 Hour"),
         ];
