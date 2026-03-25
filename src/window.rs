@@ -44,6 +44,7 @@ struct AppState {
     win_event_hook: Option<HWINEVENTHOOK>,
     is_dark: bool,
     embedded: bool,
+    tracker_visibility: TrackerVisibility,
 
     claude_session_percent: f64,
     claude_session_text: String,
@@ -80,6 +81,8 @@ const IDM_FREQ_15MIN: u16 = 12;
 const IDM_FREQ_1HOUR: u16 = 13;
 const IDM_START_WITH_WINDOWS: u16 = 20;
 const IDM_RESET_POSITION: u16 = 30;
+const IDM_TRACKER_CLAUDE: u16 = 40;
+const IDM_TRACKER_CODEX: u16 = 41;
 
 const DIVIDER_HIT_ZONE: i32 = 13; // LEFT_DIVIDER_W + DIVIDER_RIGHT_MARGIN
 
@@ -87,6 +90,55 @@ const WM_DPICHANGED_MSG: u32 = 0x02E0;
 
 /// Current system DPI (96 = 100% scaling, 144 = 150%, 192 = 200%, etc.)
 static CURRENT_DPI: AtomicU32 = AtomicU32::new(96);
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TrackerVisibility {
+    Both,
+    ClaudeOnly,
+    CodexOnly,
+}
+
+impl TrackerVisibility {
+    fn show_claude(self) -> bool {
+        matches!(self, Self::Both | Self::ClaudeOnly)
+    }
+
+    fn show_codex(self) -> bool {
+        matches!(self, Self::Both | Self::CodexOnly)
+    }
+
+    fn from_i32(value: i32) -> Self {
+        match value {
+            1 => Self::ClaudeOnly,
+            2 => Self::CodexOnly,
+            _ => Self::Both,
+        }
+    }
+
+    fn as_i32(self) -> i32 {
+        match self {
+            Self::Both => 0,
+            Self::ClaudeOnly => 1,
+            Self::CodexOnly => 2,
+        }
+    }
+
+    fn toggle_claude(self) -> Self {
+        match self {
+            Self::Both => Self::CodexOnly,
+            Self::ClaudeOnly => Self::ClaudeOnly,
+            Self::CodexOnly => Self::Both,
+        }
+    }
+
+    fn toggle_codex(self) -> Self {
+        match self {
+            Self::Both => Self::ClaudeOnly,
+            Self::ClaudeOnly => Self::Both,
+            Self::CodexOnly => Self::CodexOnly,
+        }
+    }
+}
 
 /// Scale a base pixel value (designed at 96 DPI) to the current DPI.
 fn sc(px: i32) -> i32 {
@@ -139,26 +191,31 @@ fn parse_json_i32(content: &str, key: &str) -> Option<i32> {
     num_str.parse().ok()
 }
 
-fn load_settings() -> (i32, u32) {
+fn load_settings() -> (i32, u32, TrackerVisibility) {
     let content = match std::fs::read_to_string(settings_path()) {
         Ok(c) => c,
-        Err(_) => return (0, POLL_15_MIN),
+        Err(_) => return (0, POLL_15_MIN, TrackerVisibility::Both),
     };
     let tray_offset = parse_json_i32(&content, "tray_offset").unwrap_or(0);
     let poll_interval = parse_json_i32(&content, "poll_interval_ms")
         .map(|v| v as u32)
         .unwrap_or(POLL_15_MIN);
-    (tray_offset, poll_interval)
+    let tracker_visibility = parse_json_i32(&content, "tracker_visibility")
+        .map(TrackerVisibility::from_i32)
+        .unwrap_or(TrackerVisibility::Both);
+    (tray_offset, poll_interval, tracker_visibility)
 }
 
-fn save_settings(tray_offset: i32, poll_interval_ms: u32) {
+fn save_settings(tray_offset: i32, poll_interval_ms: u32, tracker_visibility: TrackerVisibility) {
     let path = settings_path();
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let json = format!(
-        "{{\n  \"tray_offset\": {},\n  \"poll_interval_ms\": {}\n}}",
-        tray_offset, poll_interval_ms
+        "{{\n  \"tray_offset\": {},\n  \"poll_interval_ms\": {},\n  \"tracker_visibility\": {}\n}}",
+        tray_offset,
+        poll_interval_ms,
+        tracker_visibility.as_i32()
     );
     let _ = std::fs::write(path, json);
 }
@@ -166,7 +223,7 @@ fn save_settings(tray_offset: i32, poll_interval_ms: u32) {
 fn save_state_settings() {
     let state = lock_state();
     if let Some(s) = state.as_ref() {
-        save_settings(s.tray_offset, s.poll_interval_ms);
+        save_settings(s.tray_offset, s.poll_interval_ms, s.tracker_visibility);
     }
 }
 
@@ -309,13 +366,20 @@ fn row_width(segment_count: i32) -> i32 {
         + sc(TEXT_WIDTH)
 }
 
-fn total_widget_width() -> i32 {
-    sc(LEFT_DIVIDER_W)
-        + sc(DIVIDER_RIGHT_MARGIN)
-        + row_width(CLAUDE_SEGMENT_COUNT)
-        + sc(COLUMN_GAP)
-        + row_width(CODEX_SEGMENT_COUNT)
-        + sc(RIGHT_MARGIN)
+fn total_widget_width_for(tracker_visibility: TrackerVisibility) -> i32 {
+    let mut width = sc(LEFT_DIVIDER_W) + sc(DIVIDER_RIGHT_MARGIN) + sc(RIGHT_MARGIN);
+
+    if tracker_visibility.show_claude() {
+        width += row_width(CLAUDE_SEGMENT_COUNT);
+    }
+    if tracker_visibility.show_codex() {
+        if tracker_visibility.show_claude() {
+            width += sc(COLUMN_GAP);
+        }
+        width += row_width(CODEX_SEGMENT_COUNT);
+    }
+
+    width
 }
 
 pub fn run() {
@@ -360,6 +424,8 @@ pub fn run() {
 
         // Create as layered popup (will be reparented into taskbar)
         let title = native_interop::wide_str("Code Agent Usage Monitor");
+        let (saved_offset, saved_poll_interval, saved_tracker_visibility) = load_settings();
+
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
             PCWSTR::from_raw(class_name.as_ptr()),
@@ -367,7 +433,7 @@ pub fn run() {
             WS_POPUP,
             0,
             0,
-            total_widget_width(),
+            total_widget_width_for(saved_tracker_visibility),
             sc(WIDGET_HEIGHT),
             HWND::default(),
             HMENU::default(),
@@ -378,7 +444,6 @@ pub fn run() {
 
         let is_dark = theme::is_dark_mode();
         let mut embedded = false;
-        let (saved_offset, saved_poll_interval) = load_settings();
 
         {
             let mut state = lock_state();
@@ -389,6 +454,7 @@ pub fn run() {
                 win_event_hook: None,
                 is_dark,
                 embedded: false,
+                tracker_visibility: saved_tracker_visibility,
                 claude_session_percent: 0.0,
                 claude_session_text: "--".to_string(),
                 claude_weekly_percent: 0.0,
@@ -494,6 +560,7 @@ fn render_layered() {
         codex_session_text,
         codex_weekly_pct,
         codex_weekly_text,
+        tracker_visibility,
     ) = {
         let state = lock_state();
         match state.as_ref() {
@@ -509,6 +576,7 @@ fn render_layered() {
                 s.codex_session_text.clone(),
                 s.codex_weekly_percent,
                 s.codex_weekly_text.clone(),
+                s.tracker_visibility,
             ),
             None => return,
         }
@@ -524,7 +592,7 @@ fn render_layered() {
         return;
     }
 
-    let width = total_widget_width();
+    let width = total_widget_width_for(tracker_visibility);
     let height = sc(WIDGET_HEIGHT);
 
     let accent = Color::from_hex("#D97757");
@@ -596,6 +664,7 @@ fn render_layered() {
             &codex_session_text,
             codex_weekly_pct,
             &codex_weekly_text,
+            tracker_visibility,
         );
 
         // Background pixels → alpha 1 (nearly invisible but still hittable for right-click).
@@ -663,6 +732,7 @@ fn paint_content(
     codex_session_text: &str,
     codex_weekly_pct: f64,
     codex_weekly_text: &str,
+    tracker_visibility: TrackerVisibility,
 ) {
     unsafe {
         let client_rect = RECT {
@@ -716,7 +786,6 @@ fn paint_content(
         let content_x = sc(LEFT_DIVIDER_W) + sc(DIVIDER_RIGHT_MARGIN);
         let row1_y = sc(5);
         let row2_y = sc(5) + sc(SEGMENT_H) + sc(10);
-        let codex_x = content_x + row_width(CLAUDE_SEGMENT_COUNT) + sc(COLUMN_GAP);
 
         let _ = SetBkMode(hdc, TRANSPARENT);
         let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
@@ -740,50 +809,56 @@ fn paint_content(
         );
         let old_font = SelectObject(hdc, font);
 
-        draw_row(
-            hdc,
-            content_x,
-            row1_y,
-            "Cl 5h",
-            claude_session_pct,
-            claude_session_text,
-            CLAUDE_SEGMENT_COUNT,
-            claude_accent,
-            track,
-        );
-        draw_row(
-            hdc,
-            content_x,
-            row2_y,
-            "Cl 7d",
-            claude_weekly_pct,
-            claude_weekly_text,
-            CLAUDE_SEGMENT_COUNT,
-            claude_accent,
-            track,
-        );
-        draw_row(
-            hdc,
-            codex_x,
-            row1_y,
-            "Cx 5h",
-            codex_session_pct,
-            codex_session_text,
-            CODEX_SEGMENT_COUNT,
-            codex_accent,
-            track,
-        );
-        draw_row(
-            hdc,
-            codex_x,
-            row2_y,
-            "Cx 7d",
-            codex_weekly_pct,
-            codex_weekly_text,
-            CODEX_SEGMENT_COUNT,
-            codex_accent,
-            track,
-        );
+        let mut current_x = content_x;
+        if tracker_visibility.show_claude() {
+            draw_row(
+                hdc,
+                current_x,
+                row1_y,
+                "Cl 5h",
+                claude_session_pct,
+                claude_session_text,
+                CLAUDE_SEGMENT_COUNT,
+                claude_accent,
+                track,
+            );
+            draw_row(
+                hdc,
+                current_x,
+                row2_y,
+                "Cl 7d",
+                claude_weekly_pct,
+                claude_weekly_text,
+                CLAUDE_SEGMENT_COUNT,
+                claude_accent,
+                track,
+            );
+            current_x += row_width(CLAUDE_SEGMENT_COUNT) + sc(COLUMN_GAP);
+        }
+        if tracker_visibility.show_codex() {
+            draw_row(
+                hdc,
+                current_x,
+                row1_y,
+                "Cx 5h",
+                codex_session_pct,
+                codex_session_text,
+                CODEX_SEGMENT_COUNT,
+                codex_accent,
+                track,
+            );
+            draw_row(
+                hdc,
+                current_x,
+                row2_y,
+                "Cx 7d",
+                codex_weekly_pct,
+                codex_weekly_text,
+                CODEX_SEGMENT_COUNT,
+                codex_accent,
+                track,
+            );
+        }
 
         SelectObject(hdc, old_font);
         let _ = DeleteObject(font);
@@ -978,7 +1053,7 @@ fn position_at_taskbar() {
         }
     }
 
-    let widget_width = total_widget_width();
+    let widget_width = total_widget_width_for(s.tracker_visibility);
 
     let widget_height = sc(WIDGET_HEIGHT);
     if embedded {
@@ -1180,7 +1255,7 @@ unsafe extern "system" fn wnd_proc(
                                 tray_left = tray_rect.left;
                             }
                         }
-                        let widget_width = total_widget_width();
+                        let widget_width = total_widget_width_for(s.tracker_visibility);
                         let max_offset = if s.embedded {
                             tray_left - taskbar_rect.left - widget_width
                         } else {
@@ -1208,7 +1283,7 @@ unsafe extern "system" fn wnd_proc(
                                 tray_left = tray_rect.left;
                             }
                         }
-                        let widget_width = total_widget_width();
+                        let widget_width = total_widget_width_for(s.tracker_visibility);
                         let widget_height = sc(WIDGET_HEIGHT);
                         if s.embedded {
                             let x = tray_left - taskbar_rect.left - widget_width - new_offset;
@@ -1303,6 +1378,28 @@ unsafe extern "system" fn wnd_proc(
                 IDM_START_WITH_WINDOWS => {
                     set_startup_enabled(!is_startup_enabled());
                 }
+                IDM_TRACKER_CLAUDE | IDM_TRACKER_CODEX => {
+                    let mut changed = false;
+                    {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            let next = match id {
+                                IDM_TRACKER_CLAUDE => s.tracker_visibility.toggle_claude(),
+                                IDM_TRACKER_CODEX => s.tracker_visibility.toggle_codex(),
+                                _ => s.tracker_visibility,
+                            };
+                            if next != s.tracker_visibility {
+                                s.tracker_visibility = next;
+                                changed = true;
+                            }
+                        }
+                    }
+                    if changed {
+                        save_state_settings();
+                        position_at_taskbar();
+                        render_layered();
+                    }
+                }
                 IDM_FREQ_1MIN | IDM_FREQ_5MIN | IDM_FREQ_15MIN | IDM_FREQ_1HOUR => {
                     let new_interval = match id {
                         IDM_FREQ_1MIN => POLL_1_MIN,
@@ -1342,12 +1439,12 @@ unsafe extern "system" fn wnd_proc(
 
 fn show_context_menu(hwnd: HWND) {
     unsafe {
-        let current_interval = {
+        let (current_interval, tracker_visibility) = {
             let state = lock_state();
-            state
-                .as_ref()
-                .map(|s| s.poll_interval_ms)
-                .unwrap_or(POLL_15_MIN)
+            match state.as_ref() {
+                Some(s) => (s.poll_interval_ms, s.tracker_visibility),
+                None => (POLL_15_MIN, TrackerVisibility::Both),
+            }
         };
 
         let menu = CreatePopupMenu().unwrap();
@@ -1389,6 +1486,41 @@ fn show_context_menu(hwnd: HWND) {
             MF_POPUP,
             freq_menu.0 as usize,
             PCWSTR::from_raw(freq_label.as_ptr()),
+        );
+
+        let trackers_menu = CreatePopupMenu().unwrap();
+        let claude_str = native_interop::wide_str("Claude Code");
+        let claude_flags = if tracker_visibility.show_claude() {
+            MF_CHECKED
+        } else {
+            MENU_ITEM_FLAGS(0)
+        };
+        let _ = AppendMenuW(
+            trackers_menu,
+            claude_flags,
+            IDM_TRACKER_CLAUDE as usize,
+            PCWSTR::from_raw(claude_str.as_ptr()),
+        );
+
+        let codex_str = native_interop::wide_str("Codex");
+        let codex_flags = if tracker_visibility.show_codex() {
+            MF_CHECKED
+        } else {
+            MENU_ITEM_FLAGS(0)
+        };
+        let _ = AppendMenuW(
+            trackers_menu,
+            codex_flags,
+            IDM_TRACKER_CODEX as usize,
+            PCWSTR::from_raw(codex_str.as_ptr()),
+        );
+
+        let trackers_label = native_interop::wide_str("Trackers");
+        let _ = AppendMenuW(
+            menu,
+            MF_POPUP,
+            trackers_menu.0 as usize,
+            PCWSTR::from_raw(trackers_label.as_ptr()),
         );
 
         // Settings submenu
@@ -1463,6 +1595,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
         codex_session_text,
         codex_weekly_pct,
         codex_weekly_text,
+        tracker_visibility,
     ) = {
         let state = lock_state();
         match state.as_ref() {
@@ -1476,6 +1609,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
                 s.codex_session_text.clone(),
                 s.codex_weekly_percent,
                 s.codex_weekly_text.clone(),
+                s.tracker_visibility,
             ),
             None => return,
         }
@@ -1531,6 +1665,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
             &codex_session_text,
             codex_weekly_pct,
             &codex_weekly_text,
+            tracker_visibility,
         );
 
         let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY);
