@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,6 +22,7 @@ pub enum PollError {
 
 #[derive(Deserialize)]
 struct CodexSessionEvent {
+    timestamp: Option<String>,
     #[serde(rename = "type")]
     event_type: String,
     payload: CodexSessionPayload,
@@ -647,7 +648,7 @@ fn format_countdown(resets_at: Option<SystemTime>) -> String {
 
     let remaining = match reset.duration_since(SystemTime::now()) {
         Ok(d) => d,
-        Err(_) => return "now".to_string(),
+        Err(_) => return "0h".to_string(),
     };
 
     let total_secs = remaining.as_secs();
@@ -701,7 +702,7 @@ pub fn time_until_display_change(resets_at: Option<SystemTime>) -> Option<Durati
     }
 }
 
-/// Returns true if either section has reached "now" (reset time has passed).
+/// Returns true if either section has reached "0h" (reset time has passed).
 pub fn is_past_reset(data: &ProviderUsage) -> bool {
     let now = SystemTime::now();
     let past = |s: &UsageSection| matches!(s.resets_at, Some(t) if now.duration_since(t).is_ok());
@@ -709,31 +710,62 @@ pub fn is_past_reset(data: &ProviderUsage) -> bool {
 }
 
 fn read_codex_rate_limits() -> Option<ProviderUsage> {
-    let session_path = latest_codex_session_path()?;
-    let content = std::fs::read_to_string(session_path).ok()?;
+    let sessions_dir = dirs::home_dir()?.join(".codex").join("sessions");
+    read_codex_rate_limits_from_dir(&sessions_dir)
+}
 
-    for line in content.lines().rev() {
-        let event: CodexSessionEvent = match serde_json::from_str(line) {
-            Ok(event) => event,
+fn read_codex_rate_limits_from_dir(sessions_dir: &Path) -> Option<ProviderUsage> {
+    let mut session_files: Vec<PathBuf> = Vec::new();
+    visit_session_files(sessions_dir, &mut session_files);
+
+    let mut newest: Option<(SystemTime, ProviderUsage)> = None;
+    for path in session_files {
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
             Err(_) => continue,
         };
-        if event.event_type != "event_msg" {
-            continue;
-        }
 
-        if event.payload.payload_type.as_deref() != Some("token_count") {
-            continue;
-        }
+        for line in content.lines() {
+            let event: CodexSessionEvent = match serde_json::from_str(line) {
+                Ok(event) => event,
+                Err(_) => continue,
+            };
 
-        let limits = match event.payload.rate_limits {
-            Some(limits) => limits,
-            None => continue,
-        };
-        if limits.limit_id.as_deref() != Some("codex") {
-            continue;
-        }
+            let Some(parsed) = codex_usage_from_event(event) else {
+                continue;
+            };
 
-        return Some(ProviderUsage {
+            let should_replace = match &newest {
+                Some((current, _)) => parsed.0 > *current,
+                None => true,
+            };
+            if should_replace {
+                newest = Some(parsed);
+            }
+        }
+    }
+
+    newest.map(|(_, usage)| usage)
+}
+
+fn codex_usage_from_event(event: CodexSessionEvent) -> Option<(SystemTime, ProviderUsage)> {
+    if event.event_type != "event_msg" {
+        return None;
+    }
+
+    if event.payload.payload_type.as_deref() != Some("token_count") {
+        return None;
+    }
+
+    let timestamp = parse_iso8601(event.timestamp.as_deref())?;
+    let limits = event.payload.rate_limits?;
+    if limits.limit_id.as_deref() != Some("codex") {
+        return None;
+    }
+
+    Some((
+        timestamp,
+        ProviderUsage {
             session: UsageSection {
                 percentage: limits.primary.used_percent,
                 resets_at: unix_to_system_time(limits.primary.resets_at),
@@ -742,24 +774,11 @@ fn read_codex_rate_limits() -> Option<ProviderUsage> {
                 percentage: limits.secondary.used_percent,
                 resets_at: unix_to_system_time(limits.secondary.resets_at),
             },
-        });
-    }
-
-    None
+        },
+    ))
 }
 
-fn latest_codex_session_path() -> Option<PathBuf> {
-    let sessions_dir = dirs::home_dir()?.join(".codex").join("sessions");
-    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
-
-    visit_session_files(&sessions_dir, &mut newest);
-    newest.map(|(_, path)| path)
-}
-
-fn visit_session_files(
-    dir: &std::path::Path,
-    newest: &mut Option<(std::time::SystemTime, PathBuf)>,
-) {
+fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(_) => return,
@@ -768,25 +787,74 @@ fn visit_session_files(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            visit_session_files(&path, newest);
+            visit_session_files(&path, session_files);
             continue;
         }
 
         if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
             continue;
         }
+        session_files.push(path);
+    }
+}
 
-        let modified = match entry.metadata().and_then(|metadata| metadata.modified()) {
-            Ok(modified) => modified,
-            Err(_) => continue,
+#[cfg(test)]
+mod tests {
+    use super::{format_line, read_codex_rate_limits_from_dir, UsageSection, UNIX_EPOCH};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("code-agent-usage-monitor-{name}-{nanos}"))
+    }
+
+    #[test]
+    fn format_line_uses_0h_for_past_reset() {
+        let section = UsageSection {
+            percentage: 15.0,
+            resets_at: Some(SystemTime::now() - Duration::from_secs(5)),
         };
 
-        let should_replace = match newest {
-            Some((current, _)) => modified > *current,
-            None => true,
-        };
-        if should_replace {
-            *newest = Some((modified, path));
-        }
+        assert_eq!(format_line(&section), "15% \u{00b7} 0h");
+    }
+
+    #[test]
+    fn codex_reader_uses_latest_event_timestamp_across_files() {
+        let root = unique_temp_dir("codex-sessions");
+        let older_dir = root.join("2026").join("03").join("24");
+        let newer_dir = root.join("2026").join("03").join("25");
+        fs::create_dir_all(&older_dir).expect("create older dir");
+        fs::create_dir_all(&newer_dir).expect("create newer dir");
+
+        let older_file = older_dir.join("older.jsonl");
+        let newer_file = newer_dir.join("newer.jsonl");
+
+        fs::write(
+            &older_file,
+            concat!(
+                "{\"timestamp\":\"2026-03-25T12:34:34.363Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":0.0,\"resets_at\":1774460043},\"secondary\":{\"used_percent\":7.0,\"resets_at\":1774532923}}}}\n"
+            ),
+        )
+        .expect("write older file");
+
+        fs::write(
+            &newer_file,
+            concat!(
+                "{\"timestamp\":\"2026-03-25T11:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":15.0,\"resets_at\":1774453200},\"secondary\":{\"used_percent\":7.0,\"resets_at\":1774532923}}}}\n"
+            ),
+        )
+        .expect("write newer file");
+
+        let usage = read_codex_rate_limits_from_dir(&root).expect("usage");
+
+        assert_eq!(usage.session.percentage, 0.0);
+        assert_eq!(usage.weekly.percentage, 7.0);
+
+        fs::remove_dir_all(&root).expect("cleanup temp dir");
     }
 }
