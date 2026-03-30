@@ -656,7 +656,7 @@ fn format_countdown(resets_at: Option<SystemTime>) -> String {
 
     let remaining = match reset.duration_since(SystemTime::now()) {
         Ok(d) => d,
-        Err(_) => return "0h".to_string(),
+        Err(_) => return "0m".to_string(),
     };
 
     let total_secs = remaining.as_secs();
@@ -666,12 +666,10 @@ fn format_countdown(resets_at: Option<SystemTime>) -> String {
 
     if total_days >= 1 {
         format!("{total_days}d")
-    } else if total_mins > 61 {
+    } else if total_hours >= 1 {
         format!("{total_hours}h")
-    } else if total_secs > 60 {
-        format!("{total_mins}m")
     } else {
-        format!("{total_secs}")
+        format!("{total_mins}m")
     }
 }
 
@@ -685,19 +683,10 @@ pub fn time_until_display_change(resets_at: Option<SystemTime>) -> Option<Durati
     let total_hours = total_secs / 3600;
     let total_days = total_secs / 86400;
 
-    if total_secs <= 60 {
-        // Update every second during final countdown
-        return Some(Duration::from_secs(1));
-    }
-
     let next_boundary = if total_days >= 1 {
         Duration::from_secs(total_days * 86400)
-    } else if total_mins > 61 {
-        if total_hours > 1 {
-            Duration::from_secs(total_hours * 3600)
-        } else {
-            Duration::from_secs(61 * 60)
-        }
+    } else if total_hours >= 1 {
+        Duration::from_secs(total_hours * 3600)
     } else {
         Duration::from_secs(total_mins * 60)
     };
@@ -710,7 +699,7 @@ pub fn time_until_display_change(resets_at: Option<SystemTime>) -> Option<Durati
     }
 }
 
-/// Returns true if either section has reached "0h" (reset time has passed).
+/// Returns true if either section has reached its reset time.
 pub fn is_past_reset(data: &ProviderUsage) -> bool {
     let now = SystemTime::now();
     let past = |s: &UsageSection| matches!(s.resets_at, Some(t) if now.duration_since(t).is_ok());
@@ -822,13 +811,33 @@ mod tests {
     }
 
     #[test]
-    fn format_line_uses_0h_for_past_reset() {
+    fn format_line_uses_0m_for_past_reset() {
         let section = UsageSection {
             percentage: 15.0,
             resets_at: Some(SystemTime::now() - Duration::from_secs(5)),
         };
 
-        assert_eq!(format_line(&section), "15% \u{00b7} 0h");
+        assert_eq!(format_line(&section), "15% \u{00b7} 0m");
+    }
+
+    #[test]
+    fn format_line_uses_minutes_for_sub_hour_reset() {
+        let section = UsageSection {
+            percentage: 15.0,
+            resets_at: Some(SystemTime::now() + Duration::from_secs(59 * 60 + 30)),
+        };
+
+        assert_eq!(format_line(&section), "15% \u{00b7} 59m");
+    }
+
+    #[test]
+    fn format_line_uses_minutes_for_sub_minute_reset() {
+        let section = UsageSection {
+            percentage: 15.0,
+            resets_at: Some(SystemTime::now() + Duration::from_secs(59)),
+        };
+
+        assert_eq!(format_line(&section), "15% \u{00b7} 0m");
     }
 
     #[test]
