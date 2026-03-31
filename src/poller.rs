@@ -288,12 +288,12 @@ fn try_usage_endpoint(token: &str) -> Option<ProviderUsage> {
     let mut data = ProviderUsage::default();
 
     if let Some(bucket) = &response.five_hour {
-        data.session.percentage = bucket.utilization;
+        data.session.percentage = bucket.utilization * 100.0;
         data.session.resets_at = parse_iso8601(bucket.resets_at.as_deref());
     }
 
     if let Some(bucket) = &response.seven_day {
-        data.weekly.percentage = bucket.utilization;
+        data.weekly.percentage = bucket.utilization * 100.0;
         data.weekly.resets_at = parse_iso8601(bucket.resets_at.as_deref());
     }
 
