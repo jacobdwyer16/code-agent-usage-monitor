@@ -356,12 +356,12 @@ fn try_usage_endpoint(token: &str) -> Option<ProviderUsage> {
     let mut data = ProviderUsage::default();
 
     if let Some(bucket) = &response.five_hour {
-        data.session.percentage = bucket.utilization * 100.0;
+        data.session.percentage = bucket.utilization;
         data.session.resets_at = parse_iso8601(bucket.resets_at.as_deref());
     }
 
     if let Some(bucket) = &response.seven_day {
-        data.weekly.percentage = bucket.utilization * 100.0;
+        data.weekly.percentage = bucket.utilization;
         data.weekly.resets_at = parse_iso8601(bucket.resets_at.as_deref());
     }
 
@@ -406,14 +406,14 @@ fn parse_rate_limit_headers(response: &ureq::Response) -> ProviderUsage {
     let mut data = ProviderUsage::default();
 
     data.session.percentage =
-        get_header_f64(response, "anthropic-ratelimit-unified-5h-utilization") * 100.0;
+        get_header_f64(response, "anthropic-ratelimit-unified-5h-utilization");
     data.session.resets_at = unix_to_system_time(get_header_i64(
         response,
         "anthropic-ratelimit-unified-5h-reset",
     ));
 
     data.weekly.percentage =
-        get_header_f64(response, "anthropic-ratelimit-unified-7d-utilization") * 100.0;
+        get_header_f64(response, "anthropic-ratelimit-unified-7d-utilization");
     data.weekly.resets_at = unix_to_system_time(get_header_i64(
         response,
         "anthropic-ratelimit-unified-7d-reset",
