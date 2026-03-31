@@ -36,13 +36,13 @@ Claude usage is fetched from local Claude OAuth credentials:
 
 ### Codex
 
-Codex usage is read locally from saved Codex session history:
+Codex usage is fetched from the same account-backed endpoint used by the ChatGPT Codex usage page:
 
-1. Scan `~/.codex/sessions/**/*.jsonl`
-2. Find the most recent `token_count` event with Codex rate-limit snapshots
-3. Render the primary 5-hour and secondary 7-day windows in the taskbar widget
+1. Read `~/.codex/auth.json` for the local Codex ChatGPT access token and account id
+2. Query `https://chatgpt.com/backend-api/wham/usage?platform=codex`
+3. Render the primary 5-hour and secondary 7-day windows from that response
 
-This avoids an extra private API integration and stays aligned with the data already emitted by the installed Codex CLI.
+If the online usage call is unavailable, the app falls back to the most recent local Codex session snapshot from `~/.codex/sessions/**/*.jsonl`.
 
 ## Requirements
 
@@ -54,7 +54,7 @@ This avoids an extra private API integration and stays aligned with the data alr
 Notes:
 
 - If you use Claude Code inside WSL2, keep `claude` installed and authenticated in that distro.
-- Codex bars depend on recent local Codex session history being present under `~/.codex/sessions`.
+- Codex bars are most accurate when the local Codex login in `~/.codex/auth.json` is current.
 
 ## Build
 

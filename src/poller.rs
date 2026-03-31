@@ -9,6 +9,7 @@ use crate::models::{ProviderUsage, UsageData, UsageSection};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
+const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage?platform=codex";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const MODEL_FALLBACK_CHAIN: &[&str] = &["claude-3-haiku-20240307", "claude-haiku-4-5-20251001"];
@@ -47,6 +48,34 @@ struct CodexLimitWindow {
 }
 
 #[derive(Deserialize)]
+struct OpenAiAuthFile {
+    tokens: OpenAiTokens,
+}
+
+#[derive(Deserialize)]
+struct OpenAiTokens {
+    access_token: String,
+    account_id: String,
+}
+
+#[derive(Deserialize)]
+struct CodexUsageResponse {
+    rate_limit: CodexUsageRateLimit,
+}
+
+#[derive(Deserialize)]
+struct CodexUsageRateLimit {
+    primary_window: CodexUsageWindow,
+    secondary_window: Option<CodexUsageWindow>,
+}
+
+#[derive(Deserialize)]
+struct CodexUsageWindow {
+    used_percent: f64,
+    reset_at: Option<i64>,
+}
+
+#[derive(Deserialize)]
 struct UsageResponse {
     five_hour: Option<UsageBucket>,
     seven_day: Option<UsageBucket>,
@@ -59,7 +88,7 @@ struct UsageBucket {
 }
 
 pub fn poll() -> Result<UsageData, PollError> {
-    let codex = read_codex_rate_limits().unwrap_or_default();
+    let codex = fetch_codex_usage().or_else(read_codex_rate_limits).unwrap_or_default();
     let claude = match read_credentials() {
         Some(mut creds) => {
             if is_token_expired(creds.expires_at) {
@@ -87,6 +116,45 @@ pub fn poll() -> Result<UsageData, PollError> {
     };
 
     Ok(UsageData { claude, codex })
+}
+
+fn fetch_codex_usage() -> Option<ProviderUsage> {
+    let creds = read_openai_auth()?;
+    let agent = build_agent().ok()?;
+    let resp = match agent
+        .get(CODEX_USAGE_URL)
+        .set("Authorization", &format!("Bearer {}", creds.access_token))
+        .set("ChatGPT-Account-Id", &creds.account_id)
+        .set("Accept", "application/json")
+        .set("User-Agent", "CodexBar")
+        .call()
+    {
+        Ok(resp) => resp,
+        _ => return None,
+    };
+
+    let response: CodexUsageResponse = resp.into_json().ok()?;
+    Some(ProviderUsage {
+        session: UsageSection {
+            percentage: response.rate_limit.primary_window.used_percent,
+            resets_at: unix_to_system_time(response.rate_limit.primary_window.reset_at),
+        },
+        weekly: UsageSection {
+            percentage: response
+                .rate_limit
+                .secondary_window
+                .as_ref()
+                .map(|window| window.used_percent)
+                .unwrap_or_default(),
+            resets_at: unix_to_system_time(
+                response
+                    .rate_limit
+                    .secondary_window
+                    .as_ref()
+                    .and_then(|window| window.reset_at),
+            ),
+        },
+    })
 }
 
 /// Invoke the Claude CLI with a minimal prompt to force its internal
@@ -711,6 +779,13 @@ fn read_codex_rate_limits() -> Option<ProviderUsage> {
     read_codex_rate_limits_from_dir(&sessions_dir)
 }
 
+fn read_openai_auth() -> Option<OpenAiTokens> {
+    let path = dirs::home_dir()?.join(".codex").join("auth.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    let auth: OpenAiAuthFile = serde_json::from_str(&content).ok()?;
+    Some(auth.tokens)
+}
+
 fn read_codex_rate_limits_from_dir(sessions_dir: &Path) -> Option<ProviderUsage> {
     let mut session_files: Vec<PathBuf> = Vec::new();
     visit_session_files(sessions_dir, &mut session_files);
@@ -797,7 +872,7 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_line, read_codex_rate_limits_from_dir, UsageSection, UNIX_EPOCH};
+    use super::{format_line, read_codex_rate_limits_from_dir, CodexUsageResponse, UsageSection, UNIX_EPOCH};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
@@ -873,5 +948,35 @@ mod tests {
         assert_eq!(usage.weekly.percentage, 7.0);
 
         fs::remove_dir_all(&root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn codex_usage_response_maps_primary_and_secondary_windows() {
+        let response: CodexUsageResponse = serde_json::from_str(
+            r#"{
+                "rate_limit": {
+                    "primary_window": {
+                        "used_percent": 7.0,
+                        "reset_at": 1774980685
+                    },
+                    "secondary_window": {
+                        "used_percent": 11.0,
+                        "reset_at": 1775220865
+                    }
+                }
+            }"#,
+        )
+        .expect("parse response");
+
+        assert_eq!(response.rate_limit.primary_window.used_percent, 7.0);
+        assert_eq!(
+            response
+                .rate_limit
+                .secondary_window
+                .as_ref()
+                .expect("secondary")
+                .used_percent,
+            11.0
+        );
     }
 }
