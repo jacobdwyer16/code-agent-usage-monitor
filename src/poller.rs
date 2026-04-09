@@ -3,6 +3,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
+use serde_json::Value;
 use std::os::windows::process::CommandExt;
 
 use crate::models::{ProviderUsage, UsageData, UsageSection};
@@ -12,7 +13,12 @@ const MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage?platform=codex";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-const MODEL_FALLBACK_CHAIN: &[&str] = &["claude-3-haiku-20240307", "claude-haiku-4-5-20251001"];
+const CLAUDE_USER_AGENT: &str = "code-agent-usage-monitor";
+const MODEL_FALLBACK_CHAIN: &[&str] = &[
+    "claude-3-5-haiku-20241022",
+    "claude-3-haiku-20240307",
+    "claude-3-7-sonnet-20250219",
+];
 
 #[derive(Debug)]
 pub enum PollError {
@@ -75,20 +81,10 @@ struct CodexUsageWindow {
     reset_at: Option<i64>,
 }
 
-#[derive(Deserialize)]
-struct UsageResponse {
-    five_hour: Option<UsageBucket>,
-    seven_day: Option<UsageBucket>,
-}
-
-#[derive(Deserialize)]
-struct UsageBucket {
-    utilization: f64,
-    resets_at: Option<String>,
-}
-
 pub fn poll() -> Result<UsageData, PollError> {
-    let codex = fetch_codex_usage().or_else(read_codex_rate_limits).unwrap_or_default();
+    let codex = fetch_codex_usage()
+        .or_else(read_codex_rate_limits)
+        .unwrap_or_default();
     let claude = match read_credentials() {
         Some(mut creds) => {
             if is_token_expired(creds.expires_at) {
@@ -96,10 +92,12 @@ pub fn poll() -> Result<UsageData, PollError> {
 
                 match read_credentials_from_source(&creds.source) {
                     Some(refreshed) => creds = refreshed,
-                    None => return Ok(UsageData {
-                        claude: ProviderUsage::default(),
-                        codex,
-                    }),
+                    None => {
+                        return Ok(UsageData {
+                            claude: ProviderUsage::default(),
+                            codex,
+                        })
+                    }
                 }
 
                 if is_token_expired(creds.expires_at) {
@@ -342,30 +340,27 @@ fn fetch_usage_with_fallback(token: &str) -> Result<ProviderUsage, PollError> {
 fn try_usage_endpoint(token: &str) -> Option<ProviderUsage> {
     let agent = build_agent().ok()?;
 
-    let resp = match agent
+    let response = match agent
         .get(USAGE_URL)
         .set("Authorization", &format!("Bearer {token}"))
         .set("anthropic-beta", "oauth-2025-04-20")
+        .set("Accept", "application/json")
+        .set("User-Agent", CLAUDE_USER_AGENT)
         .call()
     {
         Ok(resp) => resp,
-        _ => return None,
+        Err(ureq::Error::Status(_code, resp)) => resp,
+        Err(_) => return None,
     };
 
-    let response: UsageResponse = resp.into_json().ok()?;
-    let mut data = ProviderUsage::default();
+    let header_fallback = if usage_headers_present(&response) {
+        Some(parse_rate_limit_headers(&response))
+    } else {
+        None
+    };
+    let body = response.into_string().ok()?;
 
-    if let Some(bucket) = &response.five_hour {
-        data.session.percentage = bucket.utilization;
-        data.session.resets_at = parse_iso8601(bucket.resets_at.as_deref());
-    }
-
-    if let Some(bucket) = &response.seven_day {
-        data.weekly.percentage = bucket.utilization;
-        data.weekly.resets_at = parse_iso8601(bucket.resets_at.as_deref());
-    }
-
-    Some(data)
+    parse_usage_response(&body).or(header_fallback)
 }
 
 fn fetch_usage_via_messages(token: &str) -> Result<ProviderUsage, PollError> {
@@ -383,6 +378,8 @@ fn fetch_usage_via_messages(token: &str) -> Result<ProviderUsage, PollError> {
             .set("Authorization", &format!("Bearer {token}"))
             .set("anthropic-version", "2023-06-01")
             .set("anthropic-beta", "oauth-2025-04-20")
+            .set("Accept", "application/json")
+            .set("User-Agent", CLAUDE_USER_AGENT)
             .send_json(&body)
         {
             Ok(resp) => resp,
@@ -406,20 +403,15 @@ fn parse_rate_limit_headers(response: &ureq::Response) -> ProviderUsage {
     let mut data = ProviderUsage::default();
 
     data.session.percentage =
-        get_header_f64(response, "anthropic-ratelimit-unified-5h-utilization");
-    data.session.resets_at = unix_to_system_time(get_header_i64(
-        response,
-        "anthropic-ratelimit-unified-5h-reset",
-    ));
+        get_header_percentage(response, "anthropic-ratelimit-unified-5h-utilization");
+    data.session.resets_at =
+        get_header_reset_time(response, "anthropic-ratelimit-unified-5h-reset");
 
     data.weekly.percentage =
-        get_header_f64(response, "anthropic-ratelimit-unified-7d-utilization");
-    data.weekly.resets_at = unix_to_system_time(get_header_i64(
-        response,
-        "anthropic-ratelimit-unified-7d-reset",
-    ));
+        get_header_percentage(response, "anthropic-ratelimit-unified-7d-utilization");
+    data.weekly.resets_at = get_header_reset_time(response, "anthropic-ratelimit-unified-7d-reset");
 
-    let overall_reset = get_header_i64(response, "anthropic-ratelimit-unified-reset");
+    let overall_reset = get_header_reset_time(response, "anthropic-ratelimit-unified-reset");
 
     if data.session.percentage == 0.0 && data.weekly.percentage == 0.0 {
         let status = response.header("anthropic-ratelimit-unified-status");
@@ -433,22 +425,111 @@ fn parse_rate_limit_headers(response: &ureq::Response) -> ProviderUsage {
         }
 
         if data.session.resets_at.is_none() && overall_reset.is_some() {
-            data.session.resets_at = unix_to_system_time(overall_reset);
+            data.session.resets_at = overall_reset;
         }
     }
 
     data
 }
 
-fn get_header_f64(response: &ureq::Response, name: &str) -> f64 {
+fn parse_usage_response(content: &str) -> Option<ProviderUsage> {
+    let json: Value = serde_json::from_str(content).ok()?;
+    let mut data = ProviderUsage::default();
+    let mut found_bucket = false;
+
+    if let Some(section) = parse_usage_section(
+        json.get("five_hour")
+            .or_else(|| json.get("fiveHour"))
+            .or_else(|| json.get("primary_window")),
+    ) {
+        data.session = section;
+        found_bucket = true;
+    }
+
+    if let Some(section) = parse_usage_section(
+        json.get("seven_day")
+            .or_else(|| json.get("sevenDay"))
+            .or_else(|| json.get("secondary_window")),
+    ) {
+        data.weekly = section;
+        found_bucket = true;
+    }
+
+    if found_bucket {
+        Some(data)
+    } else {
+        None
+    }
+}
+
+fn parse_usage_section(value: Option<&Value>) -> Option<UsageSection> {
+    let bucket = value?;
+    let percentage = parse_percentage(
+        bucket
+            .get("utilization")
+            .or_else(|| bucket.get("used_percent"))
+            .or_else(|| bucket.get("percentage"))
+            .or_else(|| bucket.get("used_percentage"))?
+            .as_f64()?,
+    );
+    let resets_at = parse_reset_value(bucket.get("resets_at").or_else(|| bucket.get("reset_at")));
+
+    Some(UsageSection {
+        percentage,
+        resets_at,
+    })
+}
+
+fn parse_percentage(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+
+    let normalized = if value > 0.0 && value < 1.0 {
+        value * 100.0
+    } else {
+        value
+    };
+
+    normalized.clamp(0.0, 100.0)
+}
+
+fn parse_reset_value(value: Option<&Value>) -> Option<SystemTime> {
+    match value? {
+        Value::Number(number) => unix_to_system_time(number.as_i64()),
+        Value::String(text) => parse_iso8601(Some(text)),
+        _ => None,
+    }
+}
+
+fn usage_headers_present(response: &ureq::Response) -> bool {
+    response
+        .header("anthropic-ratelimit-unified-5h-utilization")
+        .is_some()
+        || response
+            .header("anthropic-ratelimit-unified-7d-utilization")
+            .is_some()
+        || response
+            .header("anthropic-ratelimit-unified-status")
+            .is_some()
+}
+
+fn get_header_percentage(response: &ureq::Response, name: &str) -> f64 {
     response
         .header(name)
         .and_then(|s| s.parse::<f64>().ok())
+        .map(parse_percentage)
         .unwrap_or(0.0)
 }
 
-fn get_header_i64(response: &ureq::Response, name: &str) -> Option<i64> {
-    response.header(name).and_then(|s| s.parse::<i64>().ok())
+fn get_header_reset_time(response: &ureq::Response, name: &str) -> Option<SystemTime> {
+    let value = response.header(name)?;
+
+    if let Ok(unix_secs) = value.parse::<i64>() {
+        return unix_to_system_time(Some(unix_secs));
+    }
+
+    parse_iso8601(Some(value))
 }
 
 fn unix_to_system_time(unix_secs: Option<i64>) -> Option<SystemTime> {
@@ -872,7 +953,10 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_line, read_codex_rate_limits_from_dir, CodexUsageResponse, UsageSection, UNIX_EPOCH};
+    use super::{
+        format_line, parse_percentage, parse_usage_response, read_codex_rate_limits_from_dir,
+        CodexUsageResponse, UsageSection, UNIX_EPOCH,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
@@ -978,5 +1062,54 @@ mod tests {
                 .used_percent,
             11.0
         );
+    }
+
+    #[test]
+    fn parse_usage_response_reads_oauth_usage_shape() {
+        let usage = parse_usage_response(
+            r#"{
+                "five_hour": {
+                    "utilization": 2.0,
+                    "resets_at": "2026-04-09T18:00:00.000000+00:00"
+                },
+                "seven_day": {
+                    "utilization": 14.0,
+                    "resets_at": "2026-04-13T00:00:00.000000+00:00"
+                }
+            }"#,
+        )
+        .expect("usage");
+
+        assert_eq!(usage.session.percentage, 2.0);
+        assert_eq!(usage.weekly.percentage, 14.0);
+        assert!(usage.session.resets_at.is_some());
+        assert!(usage.weekly.resets_at.is_some());
+    }
+
+    #[test]
+    fn parse_usage_response_normalizes_fractional_utilization() {
+        let usage = parse_usage_response(
+            r#"{
+                "five_hour": {
+                    "utilization": 0.02,
+                    "resets_at": "2026-04-09T18:00:00Z"
+                },
+                "seven_day": {
+                    "utilization": 0.14,
+                    "resets_at": "2026-04-13T00:00:00Z"
+                }
+            }"#,
+        )
+        .expect("usage");
+
+        assert!((usage.session.percentage - 2.0).abs() < 1e-9);
+        assert!((usage.weekly.percentage - 14.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_percentage_keeps_percent_values_and_scales_fractional_values() {
+        assert_eq!(parse_percentage(14.0), 14.0);
+        assert!((parse_percentage(0.14) - 14.0).abs() < 1e-9);
+        assert_eq!(parse_percentage(0.0), 0.0);
     }
 }
