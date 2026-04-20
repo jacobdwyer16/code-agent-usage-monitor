@@ -848,6 +848,11 @@ pub fn time_until_display_change(resets_at: Option<SystemTime>) -> Option<Durati
     }
 }
 
+pub fn time_until_reset(resets_at: Option<SystemTime>) -> Option<Duration> {
+    let reset = resets_at?;
+    reset.duration_since(SystemTime::now()).ok()
+}
+
 /// Returns true if either section has reached its reset time.
 pub fn is_past_reset(data: &ProviderUsage) -> bool {
     let now = SystemTime::now();
@@ -955,7 +960,7 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 mod tests {
     use super::{
         format_line, parse_percentage, parse_usage_response, read_codex_rate_limits_from_dir,
-        CodexUsageResponse, UsageSection, UNIX_EPOCH,
+        time_until_reset, CodexUsageResponse, UsageSection, UNIX_EPOCH,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1111,5 +1116,19 @@ mod tests {
         assert_eq!(parse_percentage(14.0), 14.0);
         assert!((parse_percentage(0.14) - 14.0).abs() < 1e-9);
         assert_eq!(parse_percentage(0.0), 0.0);
+    }
+
+    #[test]
+    fn time_until_reset_returns_none_for_past_reset() {
+        let remaining = time_until_reset(Some(SystemTime::now() - Duration::from_secs(1)));
+        assert!(remaining.is_none());
+    }
+
+    #[test]
+    fn time_until_reset_returns_future_duration() {
+        let remaining = time_until_reset(Some(SystemTime::now() + Duration::from_secs(30)))
+            .expect("future reset");
+        assert!(remaining <= Duration::from_secs(30));
+        assert!(remaining > Duration::from_secs(25));
     }
 }

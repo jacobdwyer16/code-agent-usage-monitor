@@ -955,9 +955,18 @@ fn schedule_countdown_timer() {
     };
 
     let hwnd = s.hwnd.to_hwnd();
+    let reset_soon = [
+        poller::time_until_reset(data.claude.session.resets_at),
+        poller::time_until_reset(data.claude.weekly.resets_at),
+        poller::time_until_reset(data.codex.session.resets_at),
+        poller::time_until_reset(data.codex.weekly.resets_at),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|remaining| remaining <= Duration::from_secs(60));
 
-    // If a reset time has passed, poll every 5s to pick up fresh data
-    if poller::is_past_reset(&data.claude) || poller::is_past_reset(&data.codex) {
+    // Start fast polling in the final minute so the bar rolls shortly after reset.
+    if reset_soon || poller::is_past_reset(&data.claude) || poller::is_past_reset(&data.codex) {
         unsafe {
             SetTimer(hwnd, TIMER_RESET_POLL, 5_000, None);
         }
