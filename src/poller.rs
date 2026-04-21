@@ -136,6 +136,7 @@ fn fetch_codex_usage() -> Option<ProviderUsage> {
         session: UsageSection {
             percentage: response.rate_limit.primary_window.used_percent,
             resets_at: unix_to_system_time(response.rate_limit.primary_window.reset_at),
+            has_data: true,
         },
         weekly: UsageSection {
             percentage: response
@@ -151,6 +152,7 @@ fn fetch_codex_usage() -> Option<ProviderUsage> {
                     .as_ref()
                     .and_then(|window| window.reset_at),
             ),
+            has_data: response.rate_limit.secondary_window.is_some(),
         },
     })
 }
@@ -402,19 +404,30 @@ fn fetch_usage_via_messages(token: &str) -> Result<ProviderUsage, PollError> {
 fn parse_rate_limit_headers(response: &ureq::Response) -> ProviderUsage {
     let mut data = ProviderUsage::default();
 
+    data.session.has_data = response
+        .header("anthropic-ratelimit-unified-5h-utilization")
+        .is_some();
     data.session.percentage =
         get_header_percentage(response, "anthropic-ratelimit-unified-5h-utilization");
     data.session.resets_at =
         get_header_reset_time(response, "anthropic-ratelimit-unified-5h-reset");
 
+    data.weekly.has_data = response
+        .header("anthropic-ratelimit-unified-7d-utilization")
+        .is_some();
     data.weekly.percentage =
         get_header_percentage(response, "anthropic-ratelimit-unified-7d-utilization");
     data.weekly.resets_at = get_header_reset_time(response, "anthropic-ratelimit-unified-7d-reset");
 
     let overall_reset = get_header_reset_time(response, "anthropic-ratelimit-unified-reset");
 
+    let status = response.header("anthropic-ratelimit-unified-status");
+    if !data.session.has_data && !data.weekly.has_data && status.is_some() {
+        data.session.has_data = true;
+        data.weekly.has_data = true;
+    }
+
     if data.session.percentage == 0.0 && data.weekly.percentage == 0.0 {
-        let status = response.header("anthropic-ratelimit-unified-status");
         if status == Some("rejected") {
             let claim = response.header("anthropic-ratelimit-unified-representative-claim");
             match claim {
@@ -477,6 +490,7 @@ fn parse_usage_section(value: Option<&Value>) -> Option<UsageSection> {
     Some(UsageSection {
         percentage,
         resets_at,
+        has_data: true,
     })
 }
 
@@ -784,7 +798,7 @@ fn is_leap(y: u64) -> bool {
 
 /// Format a usage section as "X% · Yh" style text
 pub fn format_line(section: &UsageSection) -> String {
-    if section.resets_at.is_none() {
+    if !section.has_data && section.resets_at.is_none() {
         return "--".to_string();
     }
 
@@ -927,10 +941,12 @@ fn codex_usage_from_event(event: CodexSessionEvent) -> Option<(SystemTime, Provi
             session: UsageSection {
                 percentage: limits.primary.used_percent,
                 resets_at: unix_to_system_time(limits.primary.resets_at),
+                has_data: true,
             },
             weekly: UsageSection {
                 percentage: limits.secondary.used_percent,
                 resets_at: unix_to_system_time(limits.secondary.resets_at),
+                has_data: true,
             },
         },
     ))
@@ -979,6 +995,7 @@ mod tests {
         let section = UsageSection {
             percentage: 15.0,
             resets_at: Some(SystemTime::now() - Duration::from_secs(5)),
+            has_data: true,
         };
 
         assert_eq!(format_line(&section), "15% \u{00b7} 0m");
@@ -989,6 +1006,7 @@ mod tests {
         let section = UsageSection {
             percentage: 15.0,
             resets_at: Some(SystemTime::now() + Duration::from_secs(59 * 60 + 30)),
+            has_data: true,
         };
 
         assert_eq!(format_line(&section), "15% \u{00b7} 59m");
@@ -999,9 +1017,32 @@ mod tests {
         let section = UsageSection {
             percentage: 15.0,
             resets_at: Some(SystemTime::now() + Duration::from_secs(59)),
+            has_data: true,
         };
 
         assert_eq!(format_line(&section), "15% \u{00b7} 0m");
+    }
+
+    #[test]
+    fn format_line_shows_pct_when_data_received_without_reset() {
+        let section = UsageSection {
+            percentage: 0.0,
+            resets_at: None,
+            has_data: true,
+        };
+
+        assert_eq!(format_line(&section), "0%");
+    }
+
+    #[test]
+    fn format_line_shows_dash_when_no_data() {
+        let section = UsageSection {
+            percentage: 0.0,
+            resets_at: None,
+            has_data: false,
+        };
+
+        assert_eq!(format_line(&section), "--");
     }
 
     #[test]
