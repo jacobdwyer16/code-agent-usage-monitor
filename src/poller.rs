@@ -14,6 +14,8 @@ const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage?platfo
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const CLAUDE_USER_AGENT: &str = "code-agent-usage-monitor";
+const CLAUDE_SESSION_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
+const CLAUDE_WEEKLY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const MODEL_FALLBACK_CHAIN: &[&str] = &[
     "claude-3-5-haiku-20241022",
     "claude-3-haiku-20240307",
@@ -442,6 +444,8 @@ fn parse_rate_limit_headers(response: &ureq::Response) -> ProviderUsage {
         }
     }
 
+    populate_missing_claude_resets(&mut data);
+
     data
 }
 
@@ -469,6 +473,7 @@ fn parse_usage_response(content: &str) -> Option<ProviderUsage> {
     }
 
     if found_bucket {
+        populate_missing_claude_resets(&mut data);
         Some(data)
     } else {
         None
@@ -514,6 +519,19 @@ fn parse_reset_value(value: Option<&Value>) -> Option<SystemTime> {
         Value::String(text) => parse_iso8601(Some(text)),
         _ => None,
     }
+}
+
+fn populate_missing_claude_resets(data: &mut ProviderUsage) {
+    fill_missing_reset(&mut data.session, CLAUDE_SESSION_WINDOW);
+    fill_missing_reset(&mut data.weekly, CLAUDE_WEEKLY_WINDOW);
+}
+
+fn fill_missing_reset(section: &mut UsageSection, window: Duration) {
+    if !section.has_data || section.resets_at.is_some() || section.percentage != 0.0 {
+        return;
+    }
+
+    section.resets_at = SystemTime::now().checked_add(window);
 }
 
 fn usage_headers_present(response: &ureq::Response) -> bool {
@@ -976,7 +994,8 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 mod tests {
     use super::{
         format_line, parse_percentage, parse_usage_response, read_codex_rate_limits_from_dir,
-        time_until_reset, CodexUsageResponse, UsageSection, UNIX_EPOCH,
+        time_until_reset, CodexUsageResponse, UsageSection, CLAUDE_SESSION_WINDOW,
+        CLAUDE_WEEKLY_WINDOW, UNIX_EPOCH,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1150,6 +1169,31 @@ mod tests {
 
         assert!((usage.session.percentage - 2.0).abs() < 1e-9);
         assert!((usage.weekly.percentage - 14.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_usage_response_infers_missing_reset_times_for_zeroed_windows() {
+        let before = SystemTime::now();
+        let usage = parse_usage_response(
+            r#"{
+                "five_hour": {
+                    "utilization": 0.0
+                },
+                "seven_day": {
+                    "utilization": 0.0
+                }
+            }"#,
+        )
+        .expect("usage");
+        let after = SystemTime::now();
+
+        let session_reset = usage.session.resets_at.expect("session reset");
+        let weekly_reset = usage.weekly.resets_at.expect("weekly reset");
+
+        assert!(session_reset >= before + CLAUDE_SESSION_WINDOW);
+        assert!(session_reset <= after + CLAUDE_SESSION_WINDOW);
+        assert!(weekly_reset >= before + CLAUDE_WEEKLY_WINDOW);
+        assert!(weekly_reset <= after + CLAUDE_WEEKLY_WINDOW);
     }
 
     #[test]
