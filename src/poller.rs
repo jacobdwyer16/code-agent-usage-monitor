@@ -13,14 +13,10 @@ const MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage?platform=codex";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+const MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const CLAUDE_USER_AGENT: &str = "code-agent-usage-monitor";
 const CLAUDE_SESSION_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
 const CLAUDE_WEEKLY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-const MODEL_FALLBACK_CHAIN: &[&str] = &[
-    "claude-3-5-haiku-20241022",
-    "claude-3-haiku-20240307",
-    "claude-3-7-sonnet-20250219",
-];
 
 #[derive(Debug)]
 pub enum PollError {
@@ -53,6 +49,16 @@ struct CodexRateLimits {
 struct CodexLimitWindow {
     used_percent: f64,
     resets_at: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct ModelEntry {
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -367,10 +373,50 @@ fn try_usage_endpoint(token: &str) -> Option<ProviderUsage> {
     parse_usage_response(&body).or(header_fallback)
 }
 
+fn fetch_available_models(agent: &ureq::Agent, token: &str) -> Vec<String> {
+    let resp = match agent
+        .get(MODELS_URL)
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("anthropic-version", "2023-06-01")
+        .set("anthropic-beta", "oauth-2025-04-20")
+        .set("Accept", "application/json")
+        .set("User-Agent", CLAUDE_USER_AGENT)
+        .call()
+    {
+        Ok(r) => r,
+        _ => return Vec::new(),
+    };
+
+    let list: ModelsResponse = match resp.into_json() {
+        Ok(l) => l,
+        _ => return Vec::new(),
+    };
+
+    let mut models: Vec<String> = list.data.into_iter().map(|m| m.id).collect();
+
+    // cheapest first: haiku < sonnet < opus
+    fn tier(id: &str) -> u8 {
+        if id.contains("haiku") {
+            0
+        } else if id.contains("sonnet") {
+            1
+        } else {
+            2
+        }
+    }
+    models.sort_by_key(|id| tier(id));
+    models
+}
+
 fn fetch_usage_via_messages(token: &str) -> Result<ProviderUsage, PollError> {
     let agent = build_agent()?;
+    let models = fetch_available_models(&agent, token);
 
-    for model in MODEL_FALLBACK_CHAIN {
+    if models.is_empty() {
+        return Err(PollError::RequestFailed);
+    }
+
+    for model in &models {
         let body = serde_json::json!({
             "model": model,
             "max_tokens": 1,
