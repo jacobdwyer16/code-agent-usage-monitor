@@ -480,22 +480,19 @@ pub fn run() {
 
         // Try to embed in taskbar
         if let Some(taskbar_hwnd) = native_interop::find_taskbar() {
-            native_interop::embed_in_taskbar(hwnd, taskbar_hwnd);
-            embedded = true;
+            let tray_notify = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd");
+            let win_event_hook = tray_notify.and_then(|tray_hwnd| {
+                let thread_id = native_interop::get_window_thread_id(tray_hwnd);
+                native_interop::set_tray_event_hook(thread_id, on_tray_location_changed)
+            });
+            embedded = native_interop::embed_in_taskbar(hwnd, taskbar_hwnd);
 
             let mut state = lock_state();
             let s = state.as_mut().unwrap();
             s.taskbar_hwnd = Some(taskbar_hwnd);
-            s.embedded = true;
-
-            let tray_notify = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd");
+            s.embedded = embedded;
             s.tray_notify_hwnd = tray_notify;
-
-            if let Some(tray_hwnd) = tray_notify {
-                let thread_id = native_interop::get_window_thread_id(tray_hwnd);
-                let hook = native_interop::set_tray_event_hook(thread_id, on_tray_location_changed);
-                s.win_event_hook = hook;
-            }
+            s.win_event_hook = win_event_hook;
         }
 
         // If not embedded, fall back to topmost popup with SetLayeredWindowAttributes

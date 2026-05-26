@@ -78,22 +78,46 @@ pub fn get_window_rect_safe(hwnd: HWND) -> Option<RECT> {
 }
 
 /// Embed our window as a child of the taskbar
-pub fn embed_in_taskbar(hwnd: HWND, taskbar_hwnd: HWND) {
+pub fn embed_in_taskbar(hwnd: HWND, taskbar_hwnd: HWND) -> bool {
     unsafe {
-        // Preserve existing extended style, add tool window + no activate
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        let new_style = (style & !WS_POPUP_STYLE) | WS_CHILD_STYLE | WS_CLIPSIBLINGS_STYLE;
+
         let _ = SetWindowLongW(
             hwnd,
             GWL_EXSTYLE,
             ex_style | WS_EX_TOOLWINDOW.0 as i32 | WS_EX_NOACTIVATE.0 as i32,
         );
-
-        // Change from popup to child
-        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-        let new_style = (style & !WS_POPUP_STYLE) | WS_CHILD_STYLE | WS_CLIPSIBLINGS_STYLE;
         let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
 
-        let _ = SetParent(hwnd, taskbar_hwnd);
+        let parent_attached = SetParent(hwnd, taskbar_hwnd).is_ok()
+            && matches!(GetParent(hwnd), Ok(parent) if parent == taskbar_hwnd);
+        if !parent_attached {
+            let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
+            let _ = SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+            return false;
+        }
+
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER,
+        );
+        true
     }
 }
 
