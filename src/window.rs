@@ -16,7 +16,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::models::UsageData;
 use crate::native_interop::{
-    self, Color, TIMER_COUNTDOWN, TIMER_POLL, TIMER_RESET_POLL, WM_APP_USAGE_UPDATED,
+    self, Color, TIMER_COUNTDOWN, TIMER_POLL, TIMER_RESET_POLL, WM_APP_REPOSITION,
+    WM_APP_USAGE_UPDATED,
 };
 use crate::poller;
 use crate::theme;
@@ -1029,25 +1030,63 @@ fn update_display() {
 
 fn position_at_taskbar() {
     refresh_dpi();
-    let state = lock_state();
-    let s = match state.as_ref() {
-        Some(s) => s,
-        None => return,
+
+    let (hwnd, mut taskbar_hwnd, mut embedded, tray_offset, tracker_visibility) = {
+        let state = lock_state();
+        let s = match state.as_ref() {
+            Some(s) => s,
+            None => return,
+        };
+
+        if s.dragging {
+            return;
+        }
+
+        let taskbar_hwnd = match s.taskbar_hwnd {
+            Some(h) => h,
+            None => return,
+        };
+
+        (
+            s.hwnd.to_hwnd(),
+            taskbar_hwnd,
+            s.embedded,
+            s.tray_offset,
+            s.tracker_visibility,
+        )
     };
 
-    // Don't fight the user's drag
-    if s.dragging {
-        return;
+    if embedded && native_interop::get_parent_safe(hwnd) != Some(taskbar_hwnd) {
+        if let Some(new_taskbar_hwnd) = native_interop::find_taskbar() {
+            taskbar_hwnd = new_taskbar_hwnd;
+            embedded = native_interop::embed_in_taskbar(hwnd, taskbar_hwnd);
+
+            let tray_notify = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd");
+            let win_event_hook = tray_notify.and_then(|tray_hwnd| {
+                let thread_id = native_interop::get_window_thread_id(tray_hwnd);
+                native_interop::set_tray_event_hook(thread_id, on_tray_location_changed)
+            });
+
+            let old_hook = {
+                let mut state = lock_state();
+                match state.as_mut() {
+                    Some(s) => {
+                        let old_hook = s.win_event_hook;
+                        s.taskbar_hwnd = Some(taskbar_hwnd);
+                        s.embedded = embedded;
+                        s.tray_notify_hwnd = tray_notify;
+                        s.win_event_hook = win_event_hook;
+                        old_hook
+                    }
+                    None => None,
+                }
+            };
+
+            if let Some(hook) = old_hook {
+                native_interop::unhook_win_event(hook);
+            }
+        }
     }
-
-    let hwnd = s.hwnd.to_hwnd();
-    let embedded = s.embedded;
-    let tray_offset = s.tray_offset;
-
-    let taskbar_hwnd = match s.taskbar_hwnd {
-        Some(h) => h,
-        None => return,
-    };
 
     let taskbar_rect = match native_interop::get_taskbar_rect(taskbar_hwnd) {
         Some(r) => r,
@@ -1063,7 +1102,7 @@ fn position_at_taskbar() {
         }
     }
 
-    let widget_width = total_widget_width_for(s.tracker_visibility);
+    let widget_width = total_widget_width_for(tracker_visibility);
 
     let widget_height = sc(WIDGET_HEIGHT);
     if embedded {
@@ -1115,8 +1154,13 @@ unsafe extern "system" fn on_tray_location_changed(
             }
         };
         if should_reposition {
-            position_at_taskbar();
-            render_layered();
+            let hwnd = {
+                let state = lock_state();
+                state.as_ref().map(|s| s.hwnd.to_hwnd())
+            };
+            if let Some(hwnd) = hwnd {
+                let _ = PostMessageW(hwnd, WM_APP_REPOSITION, WPARAM(0), LPARAM(0));
+            }
         }
     }
 }
@@ -1187,6 +1231,11 @@ unsafe extern "system" fn wnd_proc(
             check_theme_change();
             render_layered();
             schedule_countdown_timer();
+            LRESULT(0)
+        }
+        WM_APP_REPOSITION => {
+            position_at_taskbar();
+            render_layered();
             LRESULT(0)
         }
         WM_SETCURSOR => {

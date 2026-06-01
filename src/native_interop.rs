@@ -21,6 +21,7 @@ pub const TIMER_RESET_POLL: usize = 3;
 // Custom messages
 pub const WM_APP: u32 = 0x8000;
 pub const WM_APP_USAGE_UPDATED: u32 = WM_APP + 1;
+pub const WM_APP_REPOSITION: u32 = WM_APP + 2;
 
 /// Get the taskbar window handle
 pub fn find_taskbar() -> Option<HWND> {
@@ -73,6 +74,15 @@ pub fn get_window_rect_safe(hwnd: HWND) -> Option<RECT> {
             Some(rect)
         } else {
             None
+        }
+    }
+}
+
+pub fn get_parent_safe(hwnd: HWND) -> Option<HWND> {
+    unsafe {
+        match GetParent(hwnd) {
+            Ok(parent) if parent != HWND::default() => Some(parent),
+            _ => None,
         }
     }
 }
