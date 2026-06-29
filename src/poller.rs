@@ -11,12 +11,17 @@ use crate::models::{ProviderUsage, UsageData, UsageSection};
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage?platform=codex";
+const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+// Public OAuth client id used by the Codex CLI; required for refresh grants.
+const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const CLAUDE_USER_AGENT: &str = "code-agent-usage-monitor";
 const CLAUDE_SESSION_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
 const CLAUDE_WEEKLY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const CODEX_PRIMARY_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
+const CODEX_SECONDARY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Debug)]
 pub enum PollError {
@@ -70,6 +75,24 @@ struct OpenAiAuthFile {
 struct OpenAiTokens {
     access_token: String,
     account_id: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    id_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CodexTokenRefresh {
+    access_token: String,
+    #[serde(default)]
+    id_token: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+}
+
+enum CodexFetch {
+    Unauthorized,
+    Failed,
 }
 
 #[derive(Deserialize)]
@@ -90,9 +113,10 @@ struct CodexUsageWindow {
 }
 
 pub fn poll() -> Result<UsageData, PollError> {
-    let codex = fetch_codex_usage()
+    let mut codex = fetch_codex_usage()
         .or_else(read_codex_rate_limits)
         .unwrap_or_default();
+    roll_over_codex(&mut codex);
     let claude = match read_credentials() {
         Some(mut creds) => {
             if is_token_expired(creds.expires_at) {
@@ -126,21 +150,40 @@ pub fn poll() -> Result<UsageData, PollError> {
 
 fn fetch_codex_usage() -> Option<ProviderUsage> {
     let creds = read_openai_auth()?;
-    let agent = build_agent().ok()?;
+    match request_codex_usage(&creds.access_token, &creds.account_id) {
+        Ok(usage) => Some(usage),
+        // Bearer rejected: refresh the OAuth token, persist it, and retry once.
+        Err(CodexFetch::Unauthorized) => {
+            let refreshed = refresh_codex_token(&creds)?;
+            request_codex_usage(&refreshed.access_token, &refreshed.account_id).ok()
+        }
+        Err(CodexFetch::Failed) => None,
+    }
+}
+
+fn request_codex_usage(access_token: &str, account_id: &str) -> Result<ProviderUsage, CodexFetch> {
+    let agent = build_agent().map_err(|_| CodexFetch::Failed)?;
     let resp = match agent
         .get(CODEX_USAGE_URL)
-        .set("Authorization", &format!("Bearer {}", creds.access_token))
-        .set("ChatGPT-Account-Id", &creds.account_id)
+        .set("Authorization", &format!("Bearer {access_token}"))
+        .set("ChatGPT-Account-Id", account_id)
         .set("Accept", "application/json")
         .set("User-Agent", "CodexBar")
         .call()
     {
         Ok(resp) => resp,
-        _ => return None,
+        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => {
+            return Err(CodexFetch::Unauthorized)
+        }
+        Err(_) => return Err(CodexFetch::Failed),
     };
 
-    let response: CodexUsageResponse = resp.into_json().ok()?;
-    Some(ProviderUsage {
+    let response: CodexUsageResponse = resp.into_json().map_err(|_| CodexFetch::Failed)?;
+    Ok(map_codex_usage(response))
+}
+
+fn map_codex_usage(response: CodexUsageResponse) -> ProviderUsage {
+    ProviderUsage {
         session: UsageSection {
             percentage: response.rate_limit.primary_window.used_percent,
             resets_at: unix_to_system_time(response.rate_limit.primary_window.reset_at),
@@ -162,7 +205,104 @@ fn fetch_codex_usage() -> Option<ProviderUsage> {
             ),
             has_data: response.rate_limit.secondary_window.is_some(),
         },
-    })
+    }
+}
+
+/// Exchange the stored refresh token for a fresh access token via the OpenAI
+/// OAuth endpoint, then write the rotated tokens back to auth.json so the next
+/// poll (and the Codex CLI itself) sees current credentials.
+fn refresh_codex_token(current: &OpenAiTokens) -> Option<OpenAiTokens> {
+    let refresh_token = current.refresh_token.as_deref()?;
+    let agent = build_agent().ok()?;
+    let body = serde_json::json!({
+        "client_id": CODEX_CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": "openid profile email",
+    });
+
+    let resp = agent
+        .post(CODEX_TOKEN_URL)
+        .set("Content-Type", "application/json")
+        .send_json(body)
+        .ok()?;
+
+    let refreshed: CodexTokenRefresh = resp.into_json().ok()?;
+    let new_tokens = OpenAiTokens {
+        access_token: refreshed.access_token,
+        account_id: current.account_id.clone(),
+        refresh_token: refreshed
+            .refresh_token
+            .or_else(|| current.refresh_token.clone()),
+        id_token: refreshed.id_token.or_else(|| current.id_token.clone()),
+    };
+
+    persist_codex_auth(&new_tokens);
+    Some(new_tokens)
+}
+
+fn persist_codex_auth(tokens: &OpenAiTokens) {
+    let Some(path) = codex_auth_path() else {
+        return;
+    };
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(mut root) = serde_json::from_str::<Value>(&content) else {
+        return;
+    };
+
+    if let Some(obj) = root.get_mut("tokens").and_then(|t| t.as_object_mut()) {
+        obj.insert(
+            "access_token".to_string(),
+            Value::String(tokens.access_token.clone()),
+        );
+        if let Some(id_token) = &tokens.id_token {
+            obj.insert("id_token".to_string(), Value::String(id_token.clone()));
+        }
+        if let Some(refresh_token) = &tokens.refresh_token {
+            obj.insert(
+                "refresh_token".to_string(),
+                Value::String(refresh_token.clone()),
+            );
+        }
+    }
+
+    if let (Some(obj), Some(now)) = (root.as_object_mut(), rfc3339_now()) {
+        obj.insert("last_refresh".to_string(), Value::String(now));
+    }
+
+    if let Ok(serialized) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(&path, serialized);
+    }
+}
+
+fn rfc3339_now() -> Option<String> {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let days = secs.div_euclid(86400);
+    let rem = secs.rem_euclid(86400);
+    let (hours, mins, seconds) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let (year, month, day) = civil_from_days(days);
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hours:02}:{mins:02}:{seconds:02}Z"
+    ))
+}
+
+// Hinnant's days-from-epoch to civil-date conversion (proleptic Gregorian).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
 /// Invoke the Claude CLI with a minimal prompt to force its internal
@@ -580,6 +720,34 @@ fn fill_missing_reset(section: &mut UsageSection, window: Duration) {
     section.resets_at = SystemTime::now().checked_add(window);
 }
 
+fn roll_over_codex(data: &mut ProviderUsage) {
+    roll_over_section(&mut data.session, CODEX_PRIMARY_WINDOW);
+    roll_over_section(&mut data.weekly, CODEX_SECONDARY_WINDOW);
+}
+
+/// A snapshot whose reset boundary has already passed describes a window that
+/// has since rolled over: usage is back to zero. Zero the percentage and
+/// advance the boundary by whole windows so the countdown stays aligned to the
+/// real reset cadence. Live readings (reset in the future) are left untouched.
+fn roll_over_section(section: &mut UsageSection, window: Duration) {
+    let Some(reset) = section.resets_at else {
+        return;
+    };
+    let now = SystemTime::now();
+    let Ok(elapsed) = now.duration_since(reset) else {
+        return;
+    };
+
+    let window_secs = window.as_secs();
+    if window_secs == 0 {
+        return;
+    }
+
+    let windows_passed = elapsed.as_secs() / window_secs + 1;
+    section.percentage = 0.0;
+    section.resets_at = reset.checked_add(Duration::from_secs(windows_passed * window_secs));
+}
+
 fn usage_headers_present(response: &ureq::Response) -> bool {
     response
         .header("anthropic-ratelimit-unified-5h-utilization")
@@ -943,9 +1111,12 @@ fn read_codex_rate_limits() -> Option<ProviderUsage> {
     read_codex_rate_limits_from_dir(&sessions_dir)
 }
 
+fn codex_auth_path() -> Option<PathBuf> {
+    Some(dirs::home_dir()?.join(".codex").join("auth.json"))
+}
+
 fn read_openai_auth() -> Option<OpenAiTokens> {
-    let path = dirs::home_dir()?.join(".codex").join("auth.json");
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = std::fs::read_to_string(codex_auth_path()?).ok()?;
     let auth: OpenAiAuthFile = serde_json::from_str(&content).ok()?;
     Some(auth.tokens)
 }
@@ -1039,9 +1210,9 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_line, parse_percentage, parse_usage_response, read_codex_rate_limits_from_dir,
-        time_until_reset, CodexUsageResponse, UsageSection, CLAUDE_SESSION_WINDOW,
-        CLAUDE_WEEKLY_WINDOW, UNIX_EPOCH,
+        civil_from_days, format_line, parse_percentage, parse_usage_response,
+        read_codex_rate_limits_from_dir, roll_over_section, time_until_reset, CodexUsageResponse,
+        UsageSection, CLAUDE_SESSION_WINDOW, CLAUDE_WEEKLY_WINDOW, CODEX_PRIMARY_WINDOW, UNIX_EPOCH,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1261,5 +1432,50 @@ mod tests {
             .expect("future reset");
         assert!(remaining <= Duration::from_secs(30));
         assert!(remaining > Duration::from_secs(25));
+    }
+
+    #[test]
+    fn roll_over_section_zeros_stale_window_and_advances_reset() {
+        // a snapshot recorded at 100% whose 5h window expired one window ago
+        let mut section = UsageSection {
+            percentage: 100.0,
+            resets_at: Some(SystemTime::now() - Duration::from_secs(60)),
+            has_data: true,
+        };
+
+        roll_over_section(&mut section, CODEX_PRIMARY_WINDOW);
+
+        assert_eq!(section.percentage, 0.0);
+        let reset = section.resets_at.expect("advanced reset");
+        let remaining = reset
+            .duration_since(SystemTime::now())
+            .expect("reset moved into the future");
+        assert!(remaining <= CODEX_PRIMARY_WINDOW);
+        assert!(remaining > CODEX_PRIMARY_WINDOW - Duration::from_secs(120));
+    }
+
+    #[test]
+    fn civil_from_days_matches_known_dates() {
+        // unix epoch
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        // 2026-06-17 is 20621 days after epoch
+        assert_eq!(civil_from_days(20621), (2026, 6, 17));
+        // leap day
+        assert_eq!(civil_from_days(18321), (2020, 2, 29));
+    }
+
+    #[test]
+    fn roll_over_section_leaves_live_reading_untouched() {
+        let future = SystemTime::now() + Duration::from_secs(1800);
+        let mut section = UsageSection {
+            percentage: 73.0,
+            resets_at: Some(future),
+            has_data: true,
+        };
+
+        roll_over_section(&mut section, CODEX_PRIMARY_WINDOW);
+
+        assert_eq!(section.percentage, 73.0);
+        assert_eq!(section.resets_at, Some(future));
     }
 }

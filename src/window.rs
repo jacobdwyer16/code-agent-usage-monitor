@@ -1106,15 +1106,16 @@ fn position_at_taskbar() {
 
     let widget_height = sc(WIDGET_HEIGHT);
     if embedded {
-        // Child window: coordinates relative to parent (taskbar)
+        // Child window: coordinates relative to parent (taskbar). Re-assert
+        // HWND_TOP so taskbar relayouts can't leave us behind sibling windows.
         let x = tray_left - taskbar_rect.left - widget_width - tray_offset;
         let y = (taskbar_height - widget_height) / 2;
-        native_interop::move_window(hwnd, x, y, widget_width, widget_height);
+        native_interop::move_window_z(hwnd, HWND_TOP, x, y, widget_width, widget_height);
     } else {
         // Topmost popup: screen coordinates
         let x = tray_left - widget_width - tray_offset;
         let y = taskbar_rect.top + (taskbar_height - widget_height) / 2;
-        native_interop::move_window(hwnd, x, y, widget_width, widget_height);
+        native_interop::move_window_z(hwnd, HWND_TOPMOST, x, y, widget_width, widget_height);
     }
 }
 

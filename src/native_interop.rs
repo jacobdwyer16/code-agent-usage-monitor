@@ -138,6 +138,25 @@ pub fn move_window(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
     }
 }
 
+/// Move the window and re-assert its z-order in the same call. `insert_after`
+/// is HWND_TOP for the embedded child (top of the taskbar's sibling order) or
+/// HWND_TOPMOST for the fallback popup. Re-raising on every reposition keeps the
+/// widget visible after the taskbar relayouts its task buttons and pushes
+/// sibling windows above us.
+pub fn move_window_z(hwnd: HWND, insert_after: HWND, x: i32, y: i32, w: i32, h: i32) {
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            insert_after,
+            x,
+            y,
+            w,
+            h,
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+        );
+    }
+}
+
 /// Set up a WinEvent hook for tray location changes
 pub fn set_tray_event_hook(
     thread_id: u32,
