@@ -22,6 +22,11 @@ const CLAUDE_SESSION_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
 const CLAUDE_WEEKLY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const CODEX_PRIMARY_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
 const CODEX_SECONDARY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+// Boundary separating the short "session" window from the long "weekly" window.
+// OpenAI reports each window's true length; anything at or below this is the
+// session slot, anything above is the weekly slot. A window a given account
+// lacks (e.g. the 5-hour limit while suspended) simply never fills its slot.
+const CODEX_SESSION_MAX_WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug)]
 pub enum PollError {
@@ -54,6 +59,7 @@ struct CodexRateLimits {
 struct CodexLimitWindow {
     used_percent: f64,
     resets_at: Option<i64>,
+    window_minutes: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -110,6 +116,7 @@ struct CodexUsageRateLimit {
 struct CodexUsageWindow {
     used_percent: f64,
     reset_at: Option<i64>,
+    limit_window_seconds: Option<i64>,
 }
 
 pub fn poll() -> Result<UsageData, PollError> {
@@ -182,30 +189,59 @@ fn request_codex_usage(access_token: &str, account_id: &str) -> Result<ProviderU
     Ok(map_codex_usage(response))
 }
 
+/// One rate-limit window normalized across the API and session-file schemas,
+/// carrying its own length so it can be routed to the correct UI slot.
+struct CodexWindow {
+    percentage: f64,
+    resets_at: Option<SystemTime>,
+    window_secs: Option<u64>,
+}
+
 fn map_codex_usage(response: CodexUsageResponse) -> ProviderUsage {
-    ProviderUsage {
-        session: UsageSection {
-            percentage: response.rate_limit.primary_window.used_percent,
-            resets_at: unix_to_system_time(response.rate_limit.primary_window.reset_at),
-            has_data: true,
-        },
-        weekly: UsageSection {
-            percentage: response
-                .rate_limit
-                .secondary_window
-                .as_ref()
-                .map(|window| window.used_percent)
-                .unwrap_or_default(),
-            resets_at: unix_to_system_time(
-                response
-                    .rate_limit
-                    .secondary_window
-                    .as_ref()
-                    .and_then(|window| window.reset_at),
-            ),
-            has_data: response.rate_limit.secondary_window.is_some(),
-        },
+    let primary = &response.rate_limit.primary_window;
+    let mut windows = vec![CodexWindow {
+        percentage: primary.used_percent,
+        resets_at: unix_to_system_time(primary.reset_at),
+        window_secs: primary.limit_window_seconds.filter(|s| *s > 0).map(|s| s as u64),
+    }];
+    if let Some(secondary) = &response.rate_limit.secondary_window {
+        windows.push(CodexWindow {
+            percentage: secondary.used_percent,
+            resets_at: unix_to_system_time(secondary.reset_at),
+            window_secs: secondary
+                .limit_window_seconds
+                .filter(|s| *s > 0)
+                .map(|s| s as u64),
+        });
     }
+    assign_codex_windows(windows)
+}
+
+/// Route each reported window to the session or weekly slot by its true length
+/// rather than its position. OpenAI has, at times, returned only the long
+/// (weekly) window in the primary position while suspending the 5-hour window;
+/// positional mapping would then mislabel a 7-day window as a 5-hour one. When
+/// a window's length is unknown (older session-file payloads), fall back to
+/// position: the first window is the session, the second is the weekly.
+fn assign_codex_windows(windows: Vec<CodexWindow>) -> ProviderUsage {
+    let mut usage = ProviderUsage::default();
+    for (index, window) in windows.into_iter().enumerate() {
+        let is_session = match window.window_secs {
+            Some(secs) => secs <= CODEX_SESSION_MAX_WINDOW.as_secs(),
+            None => index == 0,
+        };
+        let section = UsageSection {
+            percentage: window.percentage,
+            resets_at: window.resets_at,
+            has_data: true,
+        };
+        if is_session {
+            usage.session = section;
+        } else {
+            usage.weekly = section;
+        }
+    }
+    usage
 }
 
 /// Exchange the stored refresh token for a fresh access token via the OpenAI
@@ -1170,21 +1206,28 @@ fn codex_usage_from_event(event: CodexSessionEvent) -> Option<(SystemTime, Provi
         return None;
     }
 
-    Some((
-        timestamp,
-        ProviderUsage {
-            session: UsageSection {
-                percentage: limits.primary.used_percent,
-                resets_at: unix_to_system_time(limits.primary.resets_at),
-                has_data: true,
-            },
-            weekly: UsageSection {
-                percentage: limits.secondary.used_percent,
-                resets_at: unix_to_system_time(limits.secondary.resets_at),
-                has_data: true,
-            },
+    let windows = vec![
+        CodexWindow {
+            percentage: limits.primary.used_percent,
+            resets_at: unix_to_system_time(limits.primary.resets_at),
+            window_secs: limits
+                .primary
+                .window_minutes
+                .filter(|m| *m > 0)
+                .map(|m| m as u64 * 60),
         },
-    ))
+        CodexWindow {
+            percentage: limits.secondary.used_percent,
+            resets_at: unix_to_system_time(limits.secondary.resets_at),
+            window_secs: limits
+                .secondary
+                .window_minutes
+                .filter(|m| *m > 0)
+                .map(|m| m as u64 * 60),
+        },
+    ];
+
+    Some((timestamp, assign_codex_windows(windows)))
 }
 
 fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
@@ -1210,7 +1253,7 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        civil_from_days, format_line, parse_percentage, parse_usage_response,
+        civil_from_days, format_line, map_codex_usage, parse_percentage, parse_usage_response,
         read_codex_rate_limits_from_dir, roll_over_section, time_until_reset, CodexUsageResponse,
         UsageSection, CLAUDE_SESSION_WINDOW, CLAUDE_WEEKLY_WINDOW, CODEX_PRIMARY_WINDOW, UNIX_EPOCH,
     };
@@ -1477,5 +1520,78 @@ mod tests {
 
         assert_eq!(section.percentage, 73.0);
         assert_eq!(section.resets_at, Some(future));
+    }
+
+    #[test]
+    fn suspended_five_hour_routes_weekly_window_to_weekly_slot() {
+        // Live shape while OpenAI has the 5h window suspended: a single 7-day
+        // primary window and a null secondary.
+        let response: CodexUsageResponse = serde_json::from_str(
+            r#"{
+                "rate_limit": {
+                    "primary_window": {
+                        "used_percent": 0.0,
+                        "reset_at": 1784552566,
+                        "limit_window_seconds": 604800
+                    },
+                    "secondary_window": null
+                }
+            }"#,
+        )
+        .expect("parse response");
+
+        let usage = map_codex_usage(response);
+
+        assert!(!usage.session.has_data);
+        assert_eq!(format_line(&usage.session), "--");
+        assert!(usage.weekly.has_data);
+        assert_eq!(usage.weekly.percentage, 0.0);
+        assert!(usage.weekly.resets_at.is_some());
+    }
+
+    #[test]
+    fn active_windows_route_by_length_not_position() {
+        let response: CodexUsageResponse = serde_json::from_str(
+            r#"{
+                "rate_limit": {
+                    "primary_window": {
+                        "used_percent": 40.0,
+                        "reset_at": 1774460043,
+                        "limit_window_seconds": 18000
+                    },
+                    "secondary_window": {
+                        "used_percent": 7.0,
+                        "reset_at": 1774532923,
+                        "limit_window_seconds": 604800
+                    }
+                }
+            }"#,
+        )
+        .expect("parse response");
+
+        let usage = map_codex_usage(response);
+
+        assert!(usage.session.has_data);
+        assert_eq!(usage.session.percentage, 40.0);
+        assert!(usage.weekly.has_data);
+        assert_eq!(usage.weekly.percentage, 7.0);
+    }
+
+    #[test]
+    fn windows_without_length_fall_back_to_position() {
+        let response: CodexUsageResponse = serde_json::from_str(
+            r#"{
+                "rate_limit": {
+                    "primary_window": { "used_percent": 40.0, "reset_at": 1774460043 },
+                    "secondary_window": { "used_percent": 7.0, "reset_at": 1774532923 }
+                }
+            }"#,
+        )
+        .expect("parse response");
+
+        let usage = map_codex_usage(response);
+
+        assert_eq!(usage.session.percentage, 40.0);
+        assert_eq!(usage.weekly.percentage, 7.0);
     }
 }
