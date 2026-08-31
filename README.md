@@ -1,12 +1,12 @@
 # Code Agent Usage Monitor
 
-Personal side project: `Code Agent Usage Monitor` is a lightweight Windows taskbar widget for tracking local Claude and Codex rate-limit usage in real time.
+Personal side project: `Code Agent Usage Monitor` is a lightweight Windows taskbar widget for tracking the shared Claude and Codex account rate limits in real time.
 
 This repository is a respectful fork of Code Zeno Pty Ltd's `Claude Code Usage Monitor`.
 
 I did not create the original app. This side project builds on that work, keeps the original MIT license, and adds my changes for multi-agent monitoring and project-specific packaging.
 
-It embeds into the taskbar, stays out of the way, and shows rolling-window utilization plus reset countdowns for both agents.
+It embeds into the taskbar, stays out of the way, and shows rolling-window utilization plus reset countdowns for both providers. The counters include work performed through Claude Code, Claude Cowork, Codex, and ChatGPT Work.
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Rust](https://img.shields.io/badge/language-Rust-orange)
@@ -27,34 +27,48 @@ It embeds into the taskbar, stays out of the way, and shows rolling-window utili
 
 ### Claude
 
-Claude usage is fetched from local Claude OAuth credentials:
+Claude usage is fetched from the first current local Claude OAuth credential:
 
-1. Read `~/.claude/.credentials.json` on Windows, or the same file inside accessible WSL distros
-2. Refresh an expired token by invoking the local Claude CLI
+1. Read Claude Desktop's encrypted `oauth:tokenCacheV2` from `%APPDATA%\Claude\config.json`, decrypting it in memory with the current Windows user's Chromium key
+2. Also check `~/.claude/.credentials.json` on Windows and inside accessible WSL distros when Claude Code is installed
 3. Query Anthropic's OAuth usage endpoint for 5-hour and 7-day utilization
 4. Fall back to rate-limit headers from the Messages API if the usage endpoint is unavailable
+
+Anthropic applies one usage allocation across Claude product surfaces, including Claude Code and Claude Desktop. Cowork therefore changes the same server-side counters shown by the Claude bars. Claude Code is not required.
 
 ### Codex
 
 Codex usage is fetched from the same account-backed endpoint used by the ChatGPT Codex usage page:
 
-1. Read `~/.codex/auth.json` for the local Codex ChatGPT access token and account id
+1. Read `~/.codex/auth.json` for the ChatGPT access token and account id shared by the Windows ChatGPT desktop app and native Codex clients
 2. Query `https://chatgpt.com/backend-api/wham/usage?platform=codex`
 3. Render the primary 5-hour and secondary 7-day windows from that response
 
 If the online usage call is unavailable, the app falls back to the most recent local Codex session snapshot from `~/.codex/sessions/**/*.jsonl`.
 
+ChatGPT Work and Codex share usage, credits, and limits. Work performed in the ChatGPT desktop application therefore changes the same server-side counters shown by the Codex bars. Codex CLI is not required.
+
+### Desktop application setup
+
+No CLI installation or CLI login is needed:
+
+1. Sign into Claude Desktop with the Claude account used by Cowork.
+2. Sign into the ChatGPT desktop app and select the workspace used by ChatGPT Work.
+3. Start or refresh the monitor.
+
+Claude Desktop credentials are decrypted only in memory under the same Windows user account and are never written by the monitor. The ChatGPT desktop app already caches its authentication in the shared `%USERPROFILE%\.codex` directory.
+
 ## Requirements
 
 - Windows 10 or Windows 11
 - Rust toolchain with the MSVC target
-- A Claude Pro or Team account authenticated through Claude Code if you want Claude bars populated
-- A local Codex CLI login if you want Codex bars populated
+- Claude Desktop signed into the account used by Cowork if you want Claude and Cowork usage populated
+- The ChatGPT desktop app signed into the workspace used by ChatGPT Work if you want Codex and Work usage populated
 
 Notes:
 
-- If you use Claude Code inside WSL2, keep `claude` installed and authenticated in that distro.
-- Codex bars are most accurate when the local Codex login in `~/.codex/auth.json` is current.
+- Claude Code and Codex CLI credentials remain supported when present, but neither CLI is required.
+- If you use Claude Code inside WSL2, its authenticated account remains an additional Claude credential source.
 
 ## Build
 

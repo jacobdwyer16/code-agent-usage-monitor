@@ -1,10 +1,17 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde::Deserialize;
 use serde_json::Value;
 use std::os::windows::process::CommandExt;
+use windows::Win32::Foundation::{LocalFree, HLOCAL};
+use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
 
 use crate::models::{ProviderUsage, UsageData, UsageSection};
 
@@ -85,6 +92,13 @@ struct OpenAiTokens {
     refresh_token: Option<String>,
     #[serde(default)]
     id_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ClaudeDesktopToken {
+    token: String,
+    #[serde(rename = "expiresAt")]
+    expires_at: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -202,7 +216,10 @@ fn map_codex_usage(response: CodexUsageResponse) -> ProviderUsage {
     let mut windows = vec![CodexWindow {
         percentage: primary.used_percent,
         resets_at: unix_to_system_time(primary.reset_at),
-        window_secs: primary.limit_window_seconds.filter(|s| *s > 0).map(|s| s as u64),
+        window_secs: primary
+            .limit_window_seconds
+            .filter(|s| *s > 0)
+            .map(|s| s as u64),
     }];
     if let Some(secondary) = &response.rate_limit.secondary_window {
         windows.push(CodexWindow {
@@ -314,10 +331,7 @@ fn persist_codex_auth(tokens: &OpenAiTokens) {
 }
 
 fn rfc3339_now() -> Option<String> {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_secs() as i64;
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
     let days = secs.div_euclid(86400);
     let rem = secs.rem_euclid(86400);
     let (hours, mins, seconds) = (rem / 3600, (rem % 3600) / 60, rem % 60);
@@ -346,6 +360,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 fn cli_refresh_token(source: &CredentialSource) {
     match source {
         CredentialSource::Windows(_) => cli_refresh_windows_token(),
+        CredentialSource::ClaudeDesktop { .. } => {}
         CredentialSource::Wsl { distro } => cli_refresh_wsl_token(distro),
     }
 }
@@ -831,13 +846,23 @@ struct Credentials {
 #[derive(Clone, Debug)]
 enum CredentialSource {
     Windows(PathBuf),
-    Wsl { distro: String },
+    ClaudeDesktop {
+        config_path: PathBuf,
+        local_state_path: PathBuf,
+    },
+    Wsl {
+        distro: String,
+    },
 }
 
 fn read_credentials() -> Option<Credentials> {
     let mut candidates = Vec::new();
 
     if let Some(creds) = read_windows_credentials() {
+        candidates.push(creds);
+    }
+
+    if let Some(creds) = read_claude_desktop_credentials() {
         candidates.push(creds);
     }
 
@@ -857,12 +882,102 @@ fn read_windows_credentials() -> Option<Credentials> {
     parse_credentials(&content, CredentialSource::Windows(cred_path))
 }
 
+fn read_claude_desktop_credentials() -> Option<Credentials> {
+    let app_data = dirs::config_dir()?;
+    let claude_dir = app_data.join("Claude");
+    let config_path = claude_dir.join("config.json");
+    let local_state_path = claude_dir.join("Local State");
+    read_claude_desktop_credentials_from_paths(&config_path, &local_state_path)
+}
+
+fn read_claude_desktop_credentials_from_paths(
+    config_path: &Path,
+    local_state_path: &Path,
+) -> Option<Credentials> {
+    let local_state_content = std::fs::read_to_string(local_state_path).ok()?;
+    let local_state: Value = serde_json::from_str(&local_state_content).ok()?;
+    let encoded_key = local_state.pointer("/os_crypt/encrypted_key")?.as_str()?;
+    let encrypted_key = STANDARD.decode(encoded_key).ok()?;
+    let protected_key = encrypted_key.strip_prefix(b"DPAPI")?;
+    let chromium_key = unprotect_windows_data(protected_key)?;
+
+    let config_content = std::fs::read_to_string(config_path).ok()?;
+    let config: Value = serde_json::from_str(&config_content).ok()?;
+    let encoded_cache = config.get("oauth:tokenCacheV2")?.as_str()?;
+    let decrypted_cache = decrypt_chromium_value(encoded_cache, &chromium_key)?;
+    parse_claude_desktop_token_cache(
+        &decrypted_cache,
+        CredentialSource::ClaudeDesktop {
+            config_path: config_path.to_path_buf(),
+            local_state_path: local_state_path.to_path_buf(),
+        },
+    )
+}
+
+fn parse_claude_desktop_token_cache(
+    decrypted_cache: &[u8],
+    source: CredentialSource,
+) -> Option<Credentials> {
+    let token_cache: HashMap<String, ClaudeDesktopToken> =
+        serde_json::from_slice(decrypted_cache).ok()?;
+
+    let token = token_cache
+        .into_iter()
+        .filter(|(cache_key, token)| {
+            cache_key.contains("user:inference") && !token.token.is_empty()
+        })
+        .max_by_key(|(_, token)| token.expires_at.unwrap_or_default())?
+        .1;
+
+    Some(Credentials {
+        access_token: token.token,
+        expires_at: token.expires_at,
+        source,
+    })
+}
+
+fn unprotect_windows_data(protected: &[u8]) -> Option<Vec<u8>> {
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: u32::try_from(protected.len()).ok()?,
+        pbData: protected.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB::default();
+    unsafe {
+        CryptUnprotectData(&input, None, None, None, None, 0, &mut output).ok()?;
+    }
+    if output.pbData.is_null() {
+        return None;
+    }
+
+    let decrypted =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
+    unsafe {
+        LocalFree(HLOCAL(output.pbData.cast()));
+    }
+    Some(decrypted)
+}
+
+fn decrypt_chromium_value(encoded: &str, key: &[u8]) -> Option<Vec<u8>> {
+    let encrypted = STANDARD.decode(encoded).ok()?;
+    let payload = encrypted.strip_prefix(b"v10")?;
+    let nonce_bytes = payload.get(..12)?;
+    let ciphertext = payload.get(12..)?;
+    let cipher = Aes256Gcm::new_from_slice(key).ok()?;
+    cipher
+        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+        .ok()
+}
+
 fn read_credentials_from_source(source: &CredentialSource) -> Option<Credentials> {
     match source {
         CredentialSource::Windows(path) => {
             let content = std::fs::read_to_string(path).ok()?;
             parse_credentials(&content, source.clone())
         }
+        CredentialSource::ClaudeDesktop {
+            config_path,
+            local_state_path,
+        } => read_claude_desktop_credentials_from_paths(config_path, local_state_path),
         CredentialSource::Wsl { distro } => read_wsl_credentials(distro),
     }
 }
@@ -1253,9 +1368,10 @@ fn visit_session_files(dir: &Path, session_files: &mut Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        civil_from_days, format_line, map_codex_usage, parse_percentage, parse_usage_response,
-        read_codex_rate_limits_from_dir, roll_over_section, time_until_reset, CodexUsageResponse,
-        UsageSection, CLAUDE_SESSION_WINDOW, CLAUDE_WEEKLY_WINDOW, CODEX_PRIMARY_WINDOW, UNIX_EPOCH,
+        civil_from_days, format_line, map_codex_usage, parse_claude_desktop_token_cache,
+        parse_percentage, parse_usage_response, read_codex_rate_limits_from_dir, roll_over_section,
+        time_until_reset, CodexUsageResponse, CredentialSource, UsageSection,
+        CLAUDE_SESSION_WINDOW, CLAUDE_WEEKLY_WINDOW, CODEX_PRIMARY_WINDOW, UNIX_EPOCH,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1278,6 +1394,32 @@ mod tests {
         };
 
         assert_eq!(format_line(&section), "15% \u{00b7} 0m");
+    }
+
+    #[test]
+    fn claude_desktop_cache_selects_latest_inference_token() {
+        let source = CredentialSource::Windows(PathBuf::from("unused"));
+        let credentials = parse_claude_desktop_token_cache(
+            br#"{
+                "client:org:https://api.anthropic.com:user:profile": {
+                    "token": "profile-only",
+                    "expiresAt": 9999
+                },
+                "client:org:https://api.anthropic.com:user:inference user:profile": {
+                    "token": "older-inference",
+                    "expiresAt": 1000
+                },
+                "client:org:https://api.anthropic.com:user:inference user:file_upload": {
+                    "token": "newer-inference",
+                    "expiresAt": 2000
+                }
+            }"#,
+            source,
+        )
+        .expect("desktop credentials");
+
+        assert_eq!(credentials.access_token, "newer-inference");
+        assert_eq!(credentials.expires_at, Some(2000));
     }
 
     #[test]
