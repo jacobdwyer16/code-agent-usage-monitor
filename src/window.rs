@@ -16,7 +16,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::models::UsageData;
 use crate::native_interop::{
-    self, Color, TIMER_COUNTDOWN, TIMER_POLL, TIMER_RESET_POLL, WM_APP_REPOSITION,
+    self, Color, TIMER_COUNTDOWN, TIMER_LAYOUT, TIMER_POLL, TIMER_RESET_POLL, WM_APP_REPOSITION,
     WM_APP_USAGE_UPDATED,
 };
 use crate::poller;
@@ -364,6 +364,13 @@ const COLUMN_GAP: i32 = 12;
 const RIGHT_MARGIN: i32 = 4;
 const WIDGET_HEIGHT: i32 = 46;
 
+// Once reparented into the taskbar, the widget is a child of a window owned by
+// explorer, so the shell never delivers it WM_DISPLAYCHANGE, WM_DPICHANGED or
+// WM_SETTINGCHANGE (those are broadcast to top-level windows only) and the tray
+// WinEvent hook dies whenever explorer recreates the tray. Without a poll, a
+// resolution or scaling change leaves the widget laid out for the old DPI.
+const LAYOUT_SYNC_MS: u32 = 2_000;
+
 fn row_width(segment_count: i32) -> i32 {
     sc(LABEL_WIDTH) + sc(LABEL_RIGHT_MARGIN) + (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count
         - sc(SEGMENT_GAP)
@@ -526,6 +533,9 @@ pub fn run() {
                 .unwrap_or(POLL_15_MIN)
         };
         SetTimer(hwnd, TIMER_POLL, initial_poll_ms, None);
+
+        // Layout poll: the only way an embedded child learns about display changes
+        SetTimer(hwnd, TIMER_LAYOUT, LAYOUT_SYNC_MS, None);
 
         // Initial poll
         let send_hwnd = SendHwnd::from_hwnd(hwnd);
@@ -1031,7 +1041,7 @@ fn update_display() {
 fn position_at_taskbar() {
     refresh_dpi();
 
-    let (hwnd, mut taskbar_hwnd, mut embedded, tray_offset, tracker_visibility) = {
+    let (hwnd, mut taskbar_hwnd, mut embedded, tray_offset, tracker_visibility, known_tray) = {
         let state = lock_state();
         let s = match state.as_ref() {
             Some(s) => s,
@@ -1053,6 +1063,7 @@ fn position_at_taskbar() {
             s.embedded,
             s.tray_offset,
             s.tracker_visibility,
+            s.tray_notify_hwnd,
         )
     };
 
@@ -1061,29 +1072,10 @@ fn position_at_taskbar() {
             taskbar_hwnd = new_taskbar_hwnd;
             embedded = native_interop::embed_in_taskbar(hwnd, taskbar_hwnd);
 
-            let tray_notify = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd");
-            let win_event_hook = tray_notify.and_then(|tray_hwnd| {
-                let thread_id = native_interop::get_window_thread_id(tray_hwnd);
-                native_interop::set_tray_event_hook(thread_id, on_tray_location_changed)
-            });
-
-            let old_hook = {
-                let mut state = lock_state();
-                match state.as_mut() {
-                    Some(s) => {
-                        let old_hook = s.win_event_hook;
-                        s.taskbar_hwnd = Some(taskbar_hwnd);
-                        s.embedded = embedded;
-                        s.tray_notify_hwnd = tray_notify;
-                        s.win_event_hook = win_event_hook;
-                        old_hook
-                    }
-                    None => None,
-                }
-            };
-
-            if let Some(hook) = old_hook {
-                native_interop::unhook_win_event(hook);
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                s.taskbar_hwnd = Some(taskbar_hwnd);
+                s.embedded = embedded;
             }
         }
     }
@@ -1096,26 +1088,92 @@ fn position_at_taskbar() {
     let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
     let mut tray_left = taskbar_rect.right;
 
-    if let Some(tray_hwnd) = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd") {
+    let tray_hwnd = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd");
+    if let Some(tray_hwnd) = tray_hwnd {
         if let Some(tray_rect) = native_interop::get_window_rect_safe(tray_hwnd) {
             tray_left = tray_rect.left;
         }
     }
 
-    let widget_width = total_widget_width_for(tracker_visibility);
+    // Explorer recreates TrayNotifyWnd on display changes, sometimes under a
+    // taskbar window that survives. The previous hook is bound to the dead
+    // window's thread, so rebind whenever the handle moves.
+    if tray_hwnd != known_tray {
+        rebind_tray_hook(tray_hwnd);
+    }
 
+    let widget_width = total_widget_width_for(tracker_visibility);
     let widget_height = sc(WIDGET_HEIGHT);
-    if embedded {
-        // Child window: coordinates relative to parent (taskbar). Re-assert
-        // HWND_TOP so taskbar relayouts can't leave us behind sibling windows.
-        let x = tray_left - taskbar_rect.left - widget_width - tray_offset;
-        let y = (taskbar_height - widget_height) / 2;
-        native_interop::move_window_z(hwnd, HWND_TOP, x, y, widget_width, widget_height);
+    // Top-align rather than clip when the taskbar is shorter than the widget: a
+    // negative y puts content outside the parent's client area, where the child
+    // window is cut off instead of merely overflowing at the bottom.
+    let centered_y = ((taskbar_height - widget_height) / 2).max(0);
+
+    let (insert_after, x, y) = if embedded {
+        // Child window: coordinates relative to parent (taskbar).
+        (
+            HWND_TOP,
+            tray_left - taskbar_rect.left - widget_width - tray_offset,
+            centered_y,
+        )
     } else {
         // Topmost popup: screen coordinates
-        let x = tray_left - widget_width - tray_offset;
-        let y = taskbar_rect.top + (taskbar_height - widget_height) / 2;
-        native_interop::move_window_z(hwnd, HWND_TOPMOST, x, y, widget_width, widget_height);
+        (
+            HWND_TOPMOST,
+            tray_left - widget_width - tray_offset,
+            taskbar_rect.top + centered_y,
+        )
+    };
+
+    // UpdateLayeredWindow resizes the window behind our back on every render, so
+    // the live rect is the only reliable record of the applied layout. Skipping
+    // the no-op case keeps the layout poll from re-asserting z-order every tick.
+    if let Some(current) = native_interop::get_window_rect_safe(hwnd) {
+        let (cur_x, cur_y) = if embedded {
+            (
+                current.left - taskbar_rect.left,
+                current.top - taskbar_rect.top,
+            )
+        } else {
+            (current.left, current.top)
+        };
+        if cur_x == x
+            && cur_y == y
+            && current.right - current.left == widget_width
+            && current.bottom - current.top == widget_height
+        {
+            return;
+        }
+    }
+
+    // Re-assert HWND_TOP so taskbar relayouts can't leave us behind siblings.
+    native_interop::move_window_z(hwnd, insert_after, x, y, widget_width, widget_height);
+}
+
+/// Point the tray WinEvent hook at `tray_hwnd`'s thread, dropping whatever hook
+/// was installed before. Never call with STATE locked: the callback runs on this
+/// thread and takes the same lock.
+fn rebind_tray_hook(tray_hwnd: Option<HWND>) {
+    let win_event_hook = tray_hwnd.and_then(|h| {
+        let thread_id = native_interop::get_window_thread_id(h);
+        native_interop::set_tray_event_hook(thread_id, on_tray_location_changed)
+    });
+
+    let old_hook = {
+        let mut state = lock_state();
+        match state.as_mut() {
+            Some(s) => {
+                let old_hook = s.win_event_hook;
+                s.tray_notify_hwnd = tray_hwnd;
+                s.win_event_hook = win_event_hook;
+                old_hook
+            }
+            None => None,
+        }
+    };
+
+    if let Some(hook) = old_hook {
+        native_interop::unhook_win_event(hook);
     }
 }
 
@@ -1223,6 +1281,15 @@ unsafe extern "system" fn wnd_proc(
                     std::thread::spawn(move || {
                         do_poll(sh);
                     });
+                }
+                TIMER_LAYOUT => {
+                    let dpi_before = CURRENT_DPI.load(Ordering::Relaxed);
+                    position_at_taskbar();
+                    // A DPI change invalidates the rendered bitmap, not just the
+                    // window rect, so redraw at the new scale.
+                    if CURRENT_DPI.load(Ordering::Relaxed) != dpi_before {
+                        render_layered();
+                    }
                 }
                 _ => {}
             }
