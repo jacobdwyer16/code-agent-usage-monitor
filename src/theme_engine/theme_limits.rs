@@ -300,6 +300,37 @@ mod tests {
     }
 
     #[test]
+    fn hiding_fable_removes_its_bindings_and_its_column() {
+        let data = AppUsageData::from_iter([(
+            ProviderId::Claude,
+            UsageData {
+                limits: vec![limit()],
+                ..Default::default()
+            },
+        )]);
+        let runtime = ThemeRuntime::from_providers(ProviderSet::from_enabled([ProviderId::Claude]));
+        let shown = DataContext::from_usage_with_runtime(Some(&data), &Canvas::default(), runtime);
+        let hidden = DataContext::from_usage_with_runtime(
+            Some(&data),
+            &Canvas::default(),
+            runtime.with_fable(false),
+        );
+        assert_eq!(shown.get("claude.model.fable.available"), Some(1.0));
+        assert_eq!(hidden.get("claude.model.fable.available"), Some(0.0));
+        assert_eq!(hidden.get("claude.model.fable.percentage"), Some(0.0));
+        assert_eq!(
+            hidden.get("claude.limits.weekly_scoped_fable.available"),
+            Some(1.0)
+        );
+
+        let mut theme: ThemeDocument =
+            serde_json::from_str(include_str!("../themes/fork-columns.json")).unwrap();
+        theme.prepare_runtime();
+        let width = |runtime| resolve_surface_size(&theme, 0, Some(&data), runtime).0;
+        assert_eq!(width(runtime) - width(runtime.with_fable(false)), 141 + 12);
+    }
+
+    #[test]
     fn ambiguous_and_absent_quotas_never_choose_an_arbitrary_model_or_active_cap() {
         let first = limit();
         let mut second = first.clone();

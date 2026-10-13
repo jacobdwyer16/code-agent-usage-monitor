@@ -438,6 +438,7 @@ fn app_with_surfaces(surfaces: Vec<SceneObject>) -> StudioApp {
         settings: SettingsFile::default(),
         synced_poll_interval_ms: SettingsFile::default().poll_interval_ms,
         synced_taskbar_lock: false,
+        synced_show_fable: false,
         poll_interval_editor_generation: 0,
         startup_enabled: false,
         theme,

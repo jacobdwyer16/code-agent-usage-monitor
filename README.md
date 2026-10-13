@@ -15,6 +15,7 @@ This is a fork of Code Zeno Pty Ltd's [Claude Code Usage Monitor](https://github
 - **Columns** layout by default: `Cl 5h`/`Cl 7d` and `Cx 5h`/`Cx 7d` rows with segmented bars and countdowns such as `45% · 2h`, one column per enabled provider in that vendor's colour
 - Claude Code, Codex, Google Antigravity, OpenCode Go, Cursor, Grok Build, GitHub Copilot, and Meta Muse Code, with multiple accounts for Claude Code and Codex
 - Paid credit tracking for Claude and Codex
+- Optional Claude Fable quota column, off by default; toggle it from the widget menu or **Settings > Display**
 - Taskbar docking with drag, snap, and lock; floating mode; multi-monitor; tray icons
 - Settings dashboard, Theme Studio, other built-in themes, and 14 languages
 

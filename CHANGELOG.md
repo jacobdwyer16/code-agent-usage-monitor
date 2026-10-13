@@ -16,6 +16,7 @@ Rebased onto upstream 2.19.4.
 - Codex refreshes rejected tokens through OpenAI's OAuth endpoint before falling back to the Codex CLI.
 - Meta Muse Code provider (`Mu 5h`/`Mu 7d`), read from the `muse login` credentials. Untested against a live account.
 - 3- and 10-minute update frequencies.
+- A **Claude Fable** toggle in the menu and dashboard; the Fable quota is hidden by default.
 - Codex is enabled by default, and the 1.x `tracker_visibility` setting migrates to the provider toggles.
 
 ### Fixed
@@ -24,6 +25,7 @@ Rebased onto upstream 2.19.4.
 - A Codex window without a reset time no longer fails the poll.
 - Claude reset headers are accepted in ISO 8601.
 - A failed taskbar embed shows a topmost popup instead of an invisible window.
+- Columns labels no longer clip descenders such as the g in `Ag`.
 
 ### Changed
 

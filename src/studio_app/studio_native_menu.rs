@@ -575,6 +575,7 @@ pub(super) fn context_menu_preview_action_checked(
         ContextMenuAction::ToggleProvider { provider } => settings.provider_enabled(*provider),
         ContextMenuAction::ToggleStartup => startup_enabled,
         ContextMenuAction::ToggleTaskbarLock => settings.lock_taskbar,
+        ContextMenuAction::ToggleFable => settings.show_fable,
         ContextMenuAction::ToggleWidget => theme
             .surfaces
             .iter()

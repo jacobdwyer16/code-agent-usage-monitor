@@ -1372,6 +1372,7 @@ fn menu_action_details(
         "toggle_widget" => ContextMenuAction::ToggleWidget,
         "toggle_startup" => ContextMenuAction::ToggleStartup,
         "toggle_taskbar_lock" => ContextMenuAction::ToggleTaskbarLock,
+        "toggle_fable" => ContextMenuAction::ToggleFable,
         "check_for_updates" => ContextMenuAction::CheckForUpdates,
         "exit" => ContextMenuAction::Exit,
         "set_update_frequency" => {

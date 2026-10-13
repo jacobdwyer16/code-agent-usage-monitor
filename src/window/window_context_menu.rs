@@ -147,6 +147,7 @@ pub(super) fn context_menu_action_flags(
         ContextMenuAction::ToggleProvider { provider } => state.providers.contains(*provider),
         ContextMenuAction::ToggleStartup => is_startup_enabled(),
         ContextMenuAction::ToggleTaskbarLock => state.lock_taskbar,
+        ContextMenuAction::ToggleFable => state.show_fable,
         ContextMenuAction::ToggleWidget => state
             .active_theme
             .as_ref()
@@ -271,6 +272,7 @@ pub(super) fn execute_context_menu_action(
         }
         ContextMenuAction::ToggleStartup => Some(IDM_START_WITH_WINDOWS),
         ContextMenuAction::ToggleTaskbarLock => Some(IDM_LOCK_TASKBAR),
+        ContextMenuAction::ToggleFable => Some(IDM_TOGGLE_FABLE),
         ContextMenuAction::SetLanguage { language } => {
             if language.eq_ignore_ascii_case("system") {
                 Some(IDM_LANG_SYSTEM)

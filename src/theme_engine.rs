@@ -1341,6 +1341,8 @@ pub struct ThemeRuntime {
     /// the `.display` values and summaries using them follow this; `.percentage`
     /// always means consumption so severity thresholds keep their meaning.
     pub countdown: bool,
+    /// Expose the Claude Fable quota; when off its bindings read as unavailable.
+    pub show_fable: bool,
     pub surface_nest: SurfaceNest,
     pub floating_card_opacity: u8,
     host_width: u32,
@@ -1355,6 +1357,7 @@ impl Default for ThemeRuntime {
             has_error: false,
             language: LanguageId::English,
             countdown: false,
+            show_fable: true,
             surface_nest: SurfaceNest::Taskbar,
             floating_card_opacity: 85,
             host_width: default_canvas_width(),
@@ -1385,6 +1388,7 @@ impl ThemeRuntime {
             has_error: false,
             language: LanguageId::English,
             countdown: false,
+            show_fable: true,
             surface_nest: SurfaceNest::Taskbar,
             floating_card_opacity: 85,
             host_width: default_canvas_width(),
@@ -1416,6 +1420,11 @@ impl ThemeRuntime {
     /// Count each allowance down towards its limit instead of up from zero.
     pub fn with_countdown(mut self, countdown: bool) -> Self {
         self.countdown = countdown;
+        self
+    }
+
+    pub fn with_fable(mut self, show_fable: bool) -> Self {
+        self.show_fable = show_fable;
         self
     }
 
@@ -1577,6 +1586,15 @@ impl DataContext {
                 );
             }
             context.insert_provider("active", None, false, runtime.countdown);
+        }
+        if !runtime.show_fable {
+            // themes gate the column on model.fable.available, which reads 0 once removed
+            context
+                .values
+                .retain(|key, _| !key.contains(".model.fable."));
+            context
+                .strings
+                .retain(|key, _| !key.contains(".model.fable."));
         }
         context
     }

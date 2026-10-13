@@ -29,6 +29,7 @@ impl StudioApp {
             .with_poll_state(self.usage_poll_ok, self.usage_has_error)
             .with_language(language)
             .with_countdown(self.settings.usage_countdown)
+            .with_fable(self.settings.show_fable)
     }
 
     pub(super) fn theme_runtime_for_surface(&self, surface_index: usize) -> ThemeRuntime {
@@ -118,6 +119,7 @@ impl StudioApp {
             page: initial_page,
             synced_poll_interval_ms: settings.poll_interval_ms,
             synced_taskbar_lock: settings.lock_taskbar,
+            synced_show_fable: settings.show_fable,
             poll_interval_editor_generation: 0,
             settings,
             startup_enabled: crate::window::is_startup_enabled(),
@@ -220,14 +222,23 @@ impl StudioApp {
         self.synced_taskbar_lock = persisted_lock;
     }
 
+    pub(super) fn sync_show_fable(&mut self, persisted_show: bool) {
+        if self.settings.show_fable == self.synced_show_fable {
+            self.settings.show_fable = persisted_show;
+        }
+        self.synced_show_fable = persisted_show;
+    }
+
     pub(super) fn save_settings(&mut self) {
         let persisted = app_settings::load_settings();
         self.sync_poll_interval(persisted.poll_interval_ms);
         self.sync_taskbar_lock(persisted.lock_taskbar);
+        self.sync_show_fable(persisted.show_fable);
         match app_settings::save_settings(&self.settings) {
             Ok(()) => {
                 self.synced_poll_interval_ms = self.settings.poll_interval_ms;
                 self.synced_taskbar_lock = self.settings.lock_taskbar;
+                self.synced_show_fable = self.settings.show_fable;
                 self.settings_error = None;
                 self.notify_owner();
             }
@@ -833,6 +844,7 @@ impl StudioApp {
         let persisted = app_settings::load_settings();
         self.sync_poll_interval(persisted.poll_interval_ms);
         self.sync_taskbar_lock(persisted.lock_taskbar);
+        self.sync_show_fable(persisted.show_fable);
         let usage_changed =
             app_settings::load_usage_cache().is_some_and(|cache| self.update_usage_cache(cache));
         let countdown_due = self

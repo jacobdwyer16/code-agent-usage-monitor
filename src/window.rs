@@ -132,6 +132,7 @@ struct AppState {
 
     custom_theme_enabled: bool,
     usage_countdown: bool,
+    show_fable: bool,
     active_theme_path: Option<PathBuf>,
     active_theme: Option<ThemeDocument>,
     theme_clock_interval: Option<Duration>,
@@ -204,6 +205,7 @@ const IDM_FREQ_3MIN: u16 = 14;
 const IDM_FREQ_10MIN: u16 = 15;
 const IDM_START_WITH_WINDOWS: u16 = 20;
 const IDM_LOCK_TASKBAR: u16 = 21;
+const IDM_TOGGLE_FABLE: u16 = 22;
 const IDM_VERSION_ACTION: u16 = 31;
 const IDM_LANG_SYSTEM: u16 = 100;
 const IDM_LANG_FIRST: u16 = 101;
@@ -621,6 +623,7 @@ fn theme_runtime_from_state(state: &AppState) -> ThemeRuntime {
         .with_poll_state(poll_ok, has_error)
         .with_language(state.language)
         .with_countdown(state.usage_countdown)
+        .with_fable(state.show_fable)
         .with_nest(nest)
         .with_floating_card_opacity(opacity)
 }
@@ -847,6 +850,7 @@ fn save_state_settings() {
         persisted.placement_override = s.placement_override.clone();
         persisted.floating_card_opacity = s.floating_card_opacity;
         persisted.lock_taskbar = s.lock_taskbar;
+        persisted.show_fable = s.show_fable;
         // The dashboard process owns its dimensions, so leave the freshly
         // loaded values unchanged when monitor actions persist settings.
         if let Err(error) = save_settings(&persisted) {
@@ -859,6 +863,22 @@ fn save_settings_or_log(settings: &SettingsFile, context: &str) {
     if let Err(error) = save_settings(settings) {
         diagnose::log(format!("{context}: {error}"));
     }
+}
+
+pub(super) fn toggle_fable(hwnd: HWND) {
+    let shown = {
+        let mut state = lock_state();
+        let Some(state) = state.as_mut() else {
+            return;
+        };
+        state.show_fable = !state.show_fable;
+        state.show_fable
+    };
+    save_state_settings();
+    position_at_taskbar();
+    render_layered();
+    sync_tray_icon(hwnd);
+    diagnose::log(format!("Fable quota toggled: {shown}"));
 }
 
 pub(super) fn toggle_taskbar_lock(hwnd: HWND) {
@@ -2129,7 +2149,8 @@ pub fn run() {
         let initial_runtime = ThemeRuntime::from_providers(settings.enabled_providers())
             .with_poll_state(false, false)
             .with_language(language)
-            .with_countdown(settings.usage_countdown);
+            .with_countdown(settings.usage_countdown)
+            .with_fable(settings.show_fable);
         let (initial_width, initial_height) = active_theme
             .as_ref()
             .map(|theme| {
@@ -2225,6 +2246,7 @@ pub fn run() {
                 window_state_timer_active: false,
                 custom_theme_enabled,
                 usage_countdown: settings.usage_countdown,
+                show_fable: settings.show_fable,
                 active_theme_path,
                 active_theme,
                 theme_clock_interval,
@@ -2924,6 +2946,7 @@ fn reload_external_settings(hwnd: HWND) {
         state.poll_interval_ms = settings.poll_interval_ms;
         state.providers = settings.enabled_providers();
         state.usage_countdown = settings.usage_countdown;
+        state.show_fable = settings.show_fable;
         update_configured_placement(
             state,
             settings.placement_override,

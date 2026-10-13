@@ -126,6 +126,18 @@ impl StudioApp {
                 setting_separator(ui);
                 setting_row(
                     ui,
+                    language.text("Claude Fable"),
+                    language.text("Show the Fable weekly quota in supported themes"),
+                    |ui| {
+                        changed |= Toggle::new(&mut self.settings.show_fable)
+                            .labels(language.text("Enabled"), language.text("Disabled"))
+                            .show(ui)
+                            .changed();
+                    },
+                );
+                setting_separator(ui);
+                setting_row(
+                    ui,
                     language.text("Language"),
                     language.text("Language used by the app and widget"),
                     |ui| {

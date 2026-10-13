@@ -323,6 +323,7 @@ pub(super) fn context_menu_action_script(action: &ContextMenuAction) -> String {
         }
         ContextMenuAction::ToggleStartup => "toggle_startup()".into(),
         ContextMenuAction::ToggleTaskbarLock => "toggle_taskbar_lock()".into(),
+        ContextMenuAction::ToggleFable => "toggle_fable()".into(),
         ContextMenuAction::ToggleWidget => "toggle_widget()".into(),
         ContextMenuAction::LegacyResetPosition => String::new(),
         ContextMenuAction::SetLanguage { language } => {
@@ -350,6 +351,7 @@ pub(super) fn parse_context_menu_action_script(script: &str) -> Result<ContextMe
         ("refresh", ContextMenuAction::Refresh),
         ("toggle_startup", ContextMenuAction::ToggleStartup),
         ("toggle_taskbar_lock", ContextMenuAction::ToggleTaskbarLock),
+        ("toggle_fable", ContextMenuAction::ToggleFable),
         ("toggle_widget", ContextMenuAction::ToggleWidget),
         ("check_for_updates", ContextMenuAction::CheckForUpdates),
         ("exit", ContextMenuAction::Exit),

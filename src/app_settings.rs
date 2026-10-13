@@ -74,6 +74,9 @@ pub struct SettingsFile {
     /// the widget counts down towards a limit rather than up from zero.
     #[serde(default)]
     pub usage_countdown: bool,
+    /// Show the Claude Fable weekly quota in themes that support it.
+    #[serde(default)]
+    pub show_fable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_theme_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,6 +143,7 @@ impl Default for SettingsFile {
             show_muse: false,
             custom_theme_enabled: true,
             usage_countdown: false,
+            show_fable: false,
             active_theme_path: None,
             dashboard_width: None,
             dashboard_height: None,
@@ -651,6 +655,15 @@ mod tests {
         assert!(settings.toggle_provider(ProviderId::Codex));
         assert!(!settings.toggle_provider(ProviderId::Claude));
         assert_eq!(settings.enabled_providers(), ProviderSet::default());
+    }
+
+    #[test]
+    fn fable_is_hidden_by_default_and_round_trips() {
+        assert!(!SettingsFile::default().show_fable);
+        assert!(!decode_settings("{}").unwrap().show_fable);
+        let shown = decode_settings(r#"{"show_fable":true}"#).unwrap();
+        assert!(shown.show_fable);
+        assert_eq!(settings_json(&shown)["show_fable"], true);
     }
 
     #[test]

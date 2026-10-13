@@ -575,6 +575,7 @@ struct StudioApp {
     settings: SettingsFile,
     synced_poll_interval_ms: u32,
     synced_taskbar_lock: bool,
+    synced_show_fable: bool,
     poll_interval_editor_generation: u64,
     startup_enabled: bool,
     theme: ThemeDocument,
