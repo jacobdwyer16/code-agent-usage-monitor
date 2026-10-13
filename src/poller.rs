@@ -282,6 +282,7 @@ mod codex;
 mod copilot;
 mod cursor;
 mod grok;
+mod muse;
 mod opencode;
 mod retry_after;
 mod windows_credentials;
@@ -294,7 +295,7 @@ struct ProviderPoller {
     credential_watch: fn(bool) -> CredentialWatchSnapshot,
 }
 
-const PROVIDER_POLLERS: [ProviderPoller; 7] = [
+const PROVIDER_POLLERS: [ProviderPoller; 8] = [
     ProviderPoller {
         id: ProviderId::Claude,
         poll: claude::poll_claude_code,
@@ -329,6 +330,11 @@ const PROVIDER_POLLERS: [ProviderPoller; 7] = [
         id: ProviderId::Copilot,
         poll: copilot::poll_copilot,
         credential_watch: copilot::credential_watch_snapshot,
+    },
+    ProviderPoller {
+        id: ProviderId::Muse,
+        poll: muse::poll_muse,
+        credential_watch: muse::credential_watch_snapshot,
     },
 ];
 
@@ -406,7 +412,12 @@ fn get_header_i64(response: &HttpResponse, name: &str) -> Option<i64> {
         .headers()
         .get(name)
         .and_then(|value| value.to_str().ok())
-        .and_then(|s| s.parse::<i64>().ok())
+        .and_then(|s| {
+            // reset headers have been seen as ISO 8601 as well as unix seconds
+            s.parse::<i64>()
+                .ok()
+                .or_else(|| parse_datetime_to_unix(s).and_then(|secs| i64::try_from(secs).ok()))
+        })
 }
 
 fn unix_to_system_time(unix_secs: Option<i64>) -> Option<SystemTime> {

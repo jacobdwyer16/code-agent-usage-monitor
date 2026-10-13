@@ -296,7 +296,25 @@ pub(super) fn position_custom_theme_internal(hwnd: HWND, theme: &ThemeDocument, 
                     let _ = ShowWindow(hwnd, SW_HIDE);
                     return;
                 };
-                native_interop::embed_as_child(hwnd, taskbar.hwnd);
+                if !native_interop::embed_as_child(hwnd, taskbar.hwnd) {
+                    diagnose::log("taskbar embed failed; showing the widget as a topmost popup");
+                    if let Some(state) = lock_state().as_mut() {
+                        if state.hwnd.to_hwnd() == hwnd {
+                            state.embedded = false;
+                        }
+                    }
+                    native_interop::make_popup(hwnd, true);
+                    let _ = SetWindowPos(
+                        hwnd,
+                        Some(HWND_TOPMOST),
+                        x,
+                        y,
+                        width,
+                        height,
+                        SWP_NOACTIVATE,
+                    );
+                    return;
+                }
                 ensure_tray_event_hook_for_taskbar(hwnd, taskbar.hwnd);
                 let mut point = [POINT { x, y }];
                 MapWindowPoints(None, Some(taskbar.hwnd), &mut point);

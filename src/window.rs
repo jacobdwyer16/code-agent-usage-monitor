@@ -21,8 +21,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::app_settings::{
     self, load_settings, save_settings, LegacyPlacement, PlacementOverride, SettingsFile,
-    POLL_15_MIN, POLL_15_MIN_SECONDS, POLL_1_HOUR, POLL_1_HOUR_SECONDS, POLL_1_MIN,
-    POLL_1_MIN_SECONDS, POLL_5_MIN, POLL_5_MIN_SECONDS,
+    POLL_10_MIN, POLL_10_MIN_SECONDS, POLL_15_MIN, POLL_15_MIN_SECONDS, POLL_1_HOUR,
+    POLL_1_HOUR_SECONDS, POLL_1_MIN, POLL_1_MIN_SECONDS, POLL_3_MIN, POLL_3_MIN_SECONDS,
+    POLL_5_MIN, POLL_5_MIN_SECONDS,
 };
 use crate::context_menu::{self, ContextMenuAction, ContextMenuItem, ContextMenuItemKind};
 use crate::diagnose;
@@ -199,6 +200,8 @@ const IDM_FREQ_1MIN: u16 = 10;
 const IDM_FREQ_5MIN: u16 = 11;
 const IDM_FREQ_15MIN: u16 = 12;
 const IDM_FREQ_1HOUR: u16 = 13;
+const IDM_FREQ_3MIN: u16 = 14;
+const IDM_FREQ_10MIN: u16 = 15;
 const IDM_START_WITH_WINDOWS: u16 = 20;
 const IDM_LOCK_TASKBAR: u16 = 21;
 const IDM_VERSION_ACTION: u16 = 31;
@@ -985,7 +988,7 @@ fn tray_icon_tooltip_from_state() -> String {
         lock_state()
             .as_ref()
             .map(|state| state.language.strings().window_title.to_string())
-            .unwrap_or_else(|| "Claude Code Usage Monitor".to_string())
+            .unwrap_or_else(|| "Code Agent Usage Monitor".to_string())
     })
 }
 
@@ -1418,7 +1421,7 @@ fn begin_winget_update(hwnd: HWND) {
 }
 
 const STARTUP_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const STARTUP_REGISTRY_KEY: &str = "ClaudeCodeUsageMonitor";
+const STARTUP_REGISTRY_KEY: &str = "CodeAgentUsageMonitor";
 
 /// Returns true only if the startup registry value points to this executable.
 pub(crate) fn is_startup_enabled() -> bool {
@@ -1965,9 +1968,9 @@ pub fn run() {
     // wait for the previous instance to release the mutex, then take over.
     let is_relaunch = std::env::var(ENV_RELAUNCH).is_ok();
     let mutex_name = native_interop::wide_str(&if allow_multiple {
-        format!("Local\\ClaudeCodeUsageMonitor-{}", std::process::id())
+        format!("Local\\CodeAgentUsageMonitor-{}", std::process::id())
     } else {
-        "Local\\ClaudeCodeUsageMonitor".to_string()
+        "Local\\CodeAgentUsageMonitor".to_string()
     });
     let _mutex = unsafe {
         let handle = CreateMutexW(None, true, PCWSTR::from_raw(mutex_name.as_ptr()));
@@ -2005,7 +2008,7 @@ pub fn run() {
         }
     };
 
-    let class_name = native_interop::wide_str("ClaudeCodeUsageMonitor");
+    let class_name = native_interop::wide_str("CodeAgentUsageMonitor");
 
     unsafe {
         let hinstance = GetModuleHandleW(PCWSTR::null()).unwrap();
@@ -2039,16 +2042,20 @@ pub fn run() {
         let legacy_placement = settings.legacy_placement();
         let legacy_visibility = settings.legacy_widget_visibility();
         if legacy_placement.is_some() || legacy_visibility.is_some() {
-            if configured_theme
-                .as_ref()
-                .is_some_and(|theme| !theme.is_builtin_classic())
-            {
+            if configured_theme.as_ref().is_some_and(|theme| {
+                // a deferred migration saves the default as active; retry it
+                !theme.is_builtin_classic() && theme.id != theme_engine::DEFAULT_THEME_ID
+            }) {
                 // A user-selected writable theme already owns its presentation.
                 // Consume the obsolete settings without replacing that theme.
                 settings.consume_legacy_placement();
                 settings.consume_legacy_widget_visibility();
                 save_settings_or_log(&settings, "unable to consume legacy settings");
-            } else if legacy_placement.is_some() || legacy_visibility == Some(false) {
+            } else if legacy_placement.is_some_and(|placement| {
+                // the pre-theme fork always wrote tray_offset, even when undragged
+                placement.tray_offset != 0 || placement.taskbar_index != 0
+            }) || legacy_visibility == Some(false)
+            {
                 let placement = legacy_placement.map(migrated_theme_placement);
                 let migrated = ThemeDocument::migrated_from_legacy(
                     placement,
@@ -2079,6 +2086,7 @@ pub fn run() {
             } else {
                 // An explicitly visible v1.4.9 widget already matches the
                 // built-in theme's Render value, so no copy is necessary.
+                settings.consume_legacy_placement();
                 settings.consume_legacy_widget_visibility();
                 save_settings_or_log(&settings, "unable to consume legacy visibility");
             }
@@ -2090,7 +2098,7 @@ pub fn run() {
                 let theme = path
                     .as_deref()
                     .and_then(|path| theme_engine::load_theme(path).ok())
-                    .or_else(|| Some(ThemeDocument::starter()));
+                    .or_else(|| Some(ThemeDocument::default_builtin()));
                 (path, theme)
             });
         let custom_theme_enabled = true;

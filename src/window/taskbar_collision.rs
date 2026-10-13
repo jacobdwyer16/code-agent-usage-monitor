@@ -576,7 +576,7 @@ mod tests {
                 measured += 1;
                 println!("taskbar={:?} occupied={:?}", sample.bounds, sample.occupied);
                 if let Some(widget) =
-                    native_interop::find_child_window(taskbar.hwnd, "ClaudeCodeUsageMonitor")
+                    native_interop::find_child_window(taskbar.hwnd, "CodeAgentUsageMonitor")
                         .and_then(native_interop::get_window_rect_safe)
                 {
                     println!(

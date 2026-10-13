@@ -9,7 +9,7 @@ function Stop-App {
     # Normal shutdown removes tray icons before the next screenshot launch.
     # Killing the process leaves stale Explorer slots that consume vertical space.
     foreach ($process in @(Get-AppProcesses)) {
-        $owner = @([CCUMScenarioDesktop]::HostWindows($process.Id) | Where-Object Class -EQ 'ClaudeCodeUsageMonitor')
+        $owner = @([CCUMScenarioDesktop]::HostWindows($process.Id) | Where-Object Class -EQ 'CodeAgentUsageMonitor')
         if ($owner.Count -eq 1) { [CCUMScenarioDesktop]::Post($owner[0].Handle, 0x10, 0, 0) }
         Assert-Check 'normal monitor shutdown completed' ($process.WaitForExit(15000)) $process.Id
     }
@@ -126,7 +126,7 @@ function Capture-Vertical([string]$Label, [string]$Description) {
 
 function Test-LiveThemeSelection([string]$ClassicPath, [string]$VerticalPath) {
     $originalPid = (Get-AppProcesses)[0].Id
-    $owner = @([CCUMScenarioDesktop]::HostWindows($originalPid) | Where-Object Class -EQ 'ClaudeCodeUsageMonitor')[0]
+    $owner = @([CCUMScenarioDesktop]::HostWindows($originalPid) | Where-Object Class -EQ 'CodeAgentUsageMonitor')[0]
     $before = Get-Widget
     [CCUMScenarioDesktop]::Post($owner.Handle, 0x8005, 0, 0)
     Start-Sleep -Seconds 3

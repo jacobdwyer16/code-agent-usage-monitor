@@ -13,11 +13,15 @@ use crate::models::{AppUsageData, CodexCreditsState};
 use crate::providers::{ProviderId, ProviderSet};
 
 pub const POLL_1_MIN_SECONDS: u32 = 60;
+pub const POLL_3_MIN_SECONDS: u32 = 180;
 pub const POLL_5_MIN_SECONDS: u32 = 300;
+pub const POLL_10_MIN_SECONDS: u32 = 600;
 pub const POLL_15_MIN_SECONDS: u32 = 900;
 pub const POLL_1_HOUR_SECONDS: u32 = 3_600;
 pub const POLL_1_MIN: u32 = POLL_1_MIN_SECONDS * 1_000;
+pub const POLL_3_MIN: u32 = POLL_3_MIN_SECONDS * 1_000;
 pub const POLL_5_MIN: u32 = POLL_5_MIN_SECONDS * 1_000;
+pub const POLL_10_MIN: u32 = POLL_10_MIN_SECONDS * 1_000;
 pub const POLL_15_MIN: u32 = POLL_15_MIN_SECONDS * 1_000;
 pub const POLL_1_HOUR: u32 = POLL_1_HOUR_SECONDS * 1_000;
 // SetTimer clamps longer intervals to USER_TIMER_MAXIMUM (i32::MAX ms).
@@ -50,7 +54,7 @@ pub struct SettingsFile {
     pub last_update_check_unix: Option<u64>,
     #[serde(default = "default_true")]
     show_claude_code: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     show_codex: bool,
     #[serde(default)]
     show_antigravity: bool,
@@ -62,6 +66,8 @@ pub struct SettingsFile {
     show_grok: bool,
     #[serde(default)]
     show_copilot: bool,
+    #[serde(default)]
+    show_muse: bool,
     #[serde(default = "default_true")]
     pub custom_theme_enabled: bool,
     /// Show what is left of each allowance instead of what has been spent, so
@@ -125,12 +131,13 @@ impl Default for SettingsFile {
             language: None,
             last_update_check_unix: None,
             show_claude_code: true,
-            show_codex: false,
+            show_codex: true,
             show_antigravity: false,
             show_opencode: false,
             show_cursor: false,
             show_grok: false,
             show_copilot: false,
+            show_muse: false,
             custom_theme_enabled: true,
             usage_countdown: false,
             active_theme_path: None,
@@ -215,6 +222,7 @@ impl SettingsFile {
             ProviderId::Cursor => self.show_cursor,
             ProviderId::Grok => self.show_grok,
             ProviderId::Copilot => self.show_copilot,
+            ProviderId::Muse => self.show_muse,
         }
     }
 
@@ -227,6 +235,7 @@ impl SettingsFile {
             ProviderId::Cursor => self.show_cursor = enabled,
             ProviderId::Grok => self.show_grok = enabled,
             ProviderId::Copilot => self.show_copilot = enabled,
+            ProviderId::Muse => self.show_muse = enabled,
         }
     }
 
@@ -258,7 +267,7 @@ pub fn app_data_directory() -> PathBuf {
     let root = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    root.join("ClaudeCodeUsageMonitor")
+    root.join("CodeAgentUsageMonitor")
 }
 
 /// Test threads get independent settings, themes, menus, and caches. Do not
@@ -336,7 +345,23 @@ fn decode_settings(content: &str) -> Option<SettingsFile> {
     let legacy_visibility_pending = value
         .as_object()
         .is_some_and(|object| object.contains_key("widget_visible"));
+    // pre-theme fork setting: 0 both, 1 Claude only, 2 Codex only
+    let tracker_visibility = value
+        .get("tracker_visibility")
+        .and_then(serde_json::Value::as_i64)
+        .filter(|_| {
+            value.as_object().is_some_and(|object| {
+                !object.contains_key("show_claude_code") && !object.contains_key("show_codex")
+            })
+        });
     let mut settings: SettingsFile = serde_json::from_value(value).ok()?;
+    if let Some(visibility) = tracker_visibility {
+        (settings.show_claude_code, settings.show_codex) = match visibility {
+            1 => (true, false),
+            2 => (false, true),
+            _ => (true, true),
+        };
+    }
     settings.legacy_placement_pending = legacy_placement_pending;
     settings.legacy_visibility_pending = legacy_visibility_pending;
     Some(settings)
@@ -466,7 +491,7 @@ mod tests {
         let root = app_data_directory();
         assert!(root.starts_with(std::env::temp_dir()));
         if let Some(real) = std::env::var_os("APPDATA") {
-            assert!(!root.starts_with(PathBuf::from(real).join("ClaudeCodeUsageMonitor")));
+            assert!(!root.starts_with(PathBuf::from(real).join("CodeAgentUsageMonitor")));
         }
         for path in [
             settings_path(),
@@ -556,6 +581,32 @@ mod tests {
     }
 
     #[test]
+    fn fork_tracker_visibility_migrates_to_provider_toggles() {
+        for (visibility, claude, codex) in [(0, true, true), (1, true, false), (2, false, true)] {
+            let settings = decode_settings(&format!(
+                r#"{{"tray_offset":0,"poll_interval_ms":180000,"tracker_visibility":{visibility}}}"#
+            ))
+            .unwrap();
+            assert_eq!(settings.show_claude_code, claude);
+            assert_eq!(settings.show_codex, codex);
+            assert_eq!(settings.poll_interval_ms, POLL_3_MIN);
+        }
+        let explicit = decode_settings(
+            r#"{"tracker_visibility":2,"show_claude_code":true,"show_codex":false}"#,
+        )
+        .unwrap();
+        assert!(explicit.show_claude_code && !explicit.show_codex);
+    }
+
+    #[test]
+    fn fresh_settings_show_claude_and_codex() {
+        let settings = SettingsFile::default();
+        assert!(settings.show_claude_code && settings.show_codex);
+        let decoded = decode_settings("{}").unwrap();
+        assert!(decoded.show_claude_code && decoded.show_codex);
+    }
+
+    #[test]
     fn settings_never_disable_every_provider() {
         let mut settings = SettingsFile {
             show_claude_code: false,
@@ -577,6 +628,7 @@ mod tests {
             ProviderId::Cursor,
             ProviderId::Grok,
             ProviderId::Copilot,
+            ProviderId::Muse,
         ]));
 
         let json = settings_json(&settings);
@@ -587,6 +639,7 @@ mod tests {
         assert_eq!(json["show_cursor"], true);
         assert_eq!(json["show_grok"], true);
         assert_eq!(json["show_copilot"], true);
+        assert_eq!(json["show_muse"], true);
 
         let decoded = decode_settings(&json.to_string()).unwrap();
         assert_eq!(decoded.enabled_providers(), settings.enabled_providers());
@@ -595,6 +648,7 @@ mod tests {
     #[test]
     fn provider_toggle_keeps_the_last_provider_enabled() {
         let mut settings = SettingsFile::default();
+        assert!(settings.toggle_provider(ProviderId::Codex));
         assert!(!settings.toggle_provider(ProviderId::Claude));
         assert_eq!(settings.enabled_providers(), ProviderSet::default());
     }

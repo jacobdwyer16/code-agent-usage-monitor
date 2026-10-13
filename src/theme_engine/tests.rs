@@ -891,13 +891,13 @@ fn starter_theme_round_trips_and_validates() {
         .collect::<Vec<_>>();
     // Classic contains separate light and dark progress layers so the
     // 1.4.9 palette follows the taskbar mode without runtime recolouring:
-    // five providers over two windows in two modes, plus Grok and Copilot,
+    // six providers over two windows in two modes, plus Grok and Copilot,
     // which fill only the long-window row, plus a credit overlay on that row
     // for the three providers that report credits, plus the two eight-segment
     // Fable layers.
     assert_eq!(
         segments,
-        [vec![10; 5 * 2 * 2 + 2 * 2 + 3 * 2], vec![8; 2]].concat()
+        [vec![10; 6 * 2 * 2 + 2 * 2 + 3 * 2], vec![8; 2]].concat()
     );
     assert!(theme.surfaces[0]
         .children
@@ -1830,8 +1830,13 @@ fn starter_adapts_width_segments_and_collapsed_provider_rows() {
             10,
         ),
         (
+            ThemeRuntime::from_providers(ProviderSet::from_enabled([ProviderId::Muse])),
+            217,
+            10,
+        ),
+        (
             ThemeRuntime::from_providers(ProviderSet::from_enabled(ProviderId::ALL)),
-            725,
+            815,
             2,
         ),
     ] {
@@ -1907,7 +1912,7 @@ fn starter_has_a_taskbar_widget_and_provider_tray_icons() {
         theme.surfaces[0].placement.reference.region,
         ReferenceRegion::SystemTray
     );
-    assert_eq!(theme.surfaces.len(), 8);
+    assert_eq!(theme.surfaces.len(), 9);
     assert!(theme.surfaces[1..]
         .iter()
         .all(|surface| surface.placement.nest == SurfaceNest::TrayIcon));
@@ -1941,9 +1946,11 @@ fn migrated_theme_is_writable_and_only_moves_the_taskbar_surface() {
 #[test]
 fn hidden_legacy_widget_creates_an_unplaced_hidden_copy() {
     let theme = ThemeDocument::migrated_from_legacy(None, false);
-    let classic = ThemeDocument::starter();
+    let default = ThemeDocument::default_builtin();
+    assert_eq!(default.id, FORK_COLUMNS_THEME_ID);
+    assert_eq!(theme.surfaces.len(), default.surfaces.len());
     assert_eq!(theme.surfaces[0].render.0, "0");
-    assert_eq!(theme.surfaces[0].placement, classic.surfaces[0].placement);
+    assert_eq!(theme.surfaces[0].placement, default.surfaces[0].placement);
     assert!(theme.validate().is_empty());
 }
 
@@ -1961,10 +1968,11 @@ fn starter_tray_icons_follow_enabled_providers() {
 
 #[test]
 fn built_in_themes_are_valid_and_cannot_be_saved_as_editable_themes() {
-    assert_eq!(BUILTIN_THEME_SOURCES.len(), 3);
+    assert_eq!(BUILTIN_THEME_SOURCES.len(), 4);
     assert_eq!(BUILTIN_THEME_SOURCES[0].0, CLASSIC_THEME_ID);
     assert_eq!(BUILTIN_THEME_SOURCES[1].0, COMPACT_FLUENT_QUAD_THEME_ID);
     assert_eq!(BUILTIN_THEME_SOURCES[2].0, CLASSIC_VERTICAL_THEME_ID);
+    assert_eq!(BUILTIN_THEME_SOURCES[3].0, FORK_COLUMNS_THEME_ID);
     assert!(REMOVED_BUILTIN_THEME_IDS
         .iter()
         .all(|id| !is_builtin_theme_id(id)));
@@ -2276,7 +2284,7 @@ fn minecraft_context_menu_migration_is_targeted_and_one_time() {
 #[test]
 fn bundled_minecraft_install_preserves_user_edits() {
     let root = std::env::temp_dir().join(format!(
-        "claude-code-usage-monitor-minecraft-test-{}-{}",
+        "code-agent-usage-monitor-minecraft-test-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

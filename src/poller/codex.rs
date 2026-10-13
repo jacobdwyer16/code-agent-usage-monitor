@@ -1,17 +1,22 @@
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
+use serde_json::Value;
 
-use super::{build_agent, unix_to_system_time, PollError};
+use super::{build_agent, parse_iso8601, unix_to_system_time, PollError};
 use crate::app_settings;
 use crate::diagnose;
 use crate::models::{CodexCreditsState, CreditsSection, UsageData, UsageSection};
 
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const CODEX_SESSION_WINDOW: Duration = Duration::from_secs(5 * 60 * 60);
+const CODEX_WEEKLY_WINDOW: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Deserialize)]
 struct CodexAuthFile {
@@ -22,6 +27,49 @@ struct CodexAuthFile {
 struct CodexTokenData {
     access_token: String,
     account_id: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    id_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CodexTokenRefresh {
+    access_token: String,
+    #[serde(default)]
+    id_token: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+}
+
+/// One line of a Codex CLI session log (`<CODEX_HOME>/sessions/**/*.jsonl`).
+#[derive(Deserialize)]
+struct CodexSessionEvent {
+    timestamp: Option<String>,
+    #[serde(rename = "type")]
+    event_type: String,
+    payload: CodexSessionPayload,
+}
+
+#[derive(Deserialize)]
+struct CodexSessionPayload {
+    #[serde(rename = "type")]
+    payload_type: Option<String>,
+    rate_limits: Option<CodexSessionRateLimits>,
+}
+
+#[derive(Deserialize)]
+struct CodexSessionRateLimits {
+    limit_id: Option<String>,
+    primary: CodexSessionLimitWindow,
+    secondary: CodexSessionLimitWindow,
+}
+
+#[derive(Deserialize)]
+struct CodexSessionLimitWindow {
+    used_percent: f64,
+    resets_at: Option<i64>,
+    window_minutes: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -73,7 +121,8 @@ struct CodexRateLimitDetails {
 #[derive(Deserialize)]
 pub(super) struct CodexRateLimitWindow {
     used_percent: f64,
-    reset_at: i64,
+    #[serde(default)]
+    reset_at: Option<i64>,
     limit_window_seconds: Option<i64>,
 }
 
@@ -88,6 +137,31 @@ pub(super) fn poll_codex() -> Result<UsageData, PollError> {
 }
 
 pub(super) fn poll_account(path: &Path) -> Result<UsageData, PollError> {
+    poll_account_online(path).or_else(|error| {
+        // login failures keep their sign-in prompt; only outages fall back
+        if !error.is_transient() {
+            return Err(error);
+        }
+        let sessions = path.parent().map(|directory| directory.join("sessions"));
+        match sessions
+            .as_deref()
+            .and_then(read_codex_rate_limits_from_dir)
+        {
+            Some(mut data) => {
+                diagnose::log(format!(
+                    "Codex usage endpoint failed ({error:?}); using latest local session snapshot"
+                ));
+                roll_over_section(&mut data.session, CODEX_SESSION_WINDOW);
+                roll_over_section(&mut data.weekly, CODEX_WEEKLY_WINDOW);
+                data.stale = true;
+                Ok(data)
+            }
+            None => Err(error),
+        }
+    })
+}
+
+fn poll_account_online(path: &Path) -> Result<UsageData, PollError> {
     let creds = match read_codex_credentials_at(path) {
         Some(creds) => creds,
         None => {
@@ -99,6 +173,15 @@ pub(super) fn poll_account(path: &Path) -> Result<UsageData, PollError> {
     match fetch_codex_usage_at(&creds.access_token, creds.account_id.as_deref(), Some(path)) {
         Ok(data) => Ok(data),
         Err(PollError::AuthRequired) => {
+            // the OAuth refresh grant avoids the CLI fallback below, which
+            // spends a real model request to rotate the token
+            if let Some(refreshed) = refresh_codex_token(path, &creds) {
+                return fetch_codex_usage_at(
+                    &refreshed.access_token,
+                    refreshed.account_id.as_deref(),
+                    Some(path),
+                );
+            }
             if path.file_name().is_some_and(|name| name == "auth.json") {
                 if let Some(directory) = path.parent() {
                     cli_refresh_codex_token(directory);
@@ -325,8 +408,193 @@ pub(super) fn codex_section_from_window(window: &CodexRateLimitWindow) -> UsageS
     UsageSection {
         available: true,
         percentage: window.used_percent,
-        resets_at: unix_to_system_time(Some(window.reset_at)),
+        resets_at: unix_to_system_time(window.reset_at),
     }
+}
+
+/// Rotated tokens are written back to auth.json so the Codex CLI keeps working.
+fn refresh_codex_token(path: &Path, current: &CodexTokenData) -> Option<CodexTokenData> {
+    let refresh_token = current.refresh_token.as_deref()?;
+    let agent = build_agent().ok()?;
+    let body = serde_json::json!({
+        "client_id": CODEX_CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": "openid profile email",
+    });
+    let mut response = match agent
+        .post(CODEX_TOKEN_URL)
+        .header("Content-Type", "application/json")
+        .send_json(body)
+        .and_then(super::check_http_status)
+    {
+        Ok(response) => response,
+        Err(error) => {
+            diagnose::log_error("Codex OAuth token refresh failed", error);
+            return None;
+        }
+    };
+    let refreshed: CodexTokenRefresh = match response.body_mut().read_json() {
+        Ok(refreshed) => refreshed,
+        Err(error) => {
+            diagnose::log_error("unable to parse Codex OAuth token refresh response", error);
+            return None;
+        }
+    };
+    let tokens = CodexTokenData {
+        access_token: refreshed.access_token,
+        account_id: current.account_id.clone(),
+        refresh_token: refreshed
+            .refresh_token
+            .or_else(|| current.refresh_token.clone()),
+        id_token: refreshed.id_token.or_else(|| current.id_token.clone()),
+    };
+    if let Err(error) = persist_codex_auth(path, &tokens) {
+        diagnose::log(format!("unable to persist refreshed Codex tokens: {error}"));
+    }
+    Some(tokens)
+}
+
+fn persist_codex_auth(path: &Path, tokens: &CodexTokenData) -> Result<(), String> {
+    let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut root: Value = serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    let token_fields = root
+        .get_mut("tokens")
+        .and_then(Value::as_object_mut)
+        .ok_or("auth.json has no tokens object")?;
+    token_fields.insert(
+        "access_token".into(),
+        Value::String(tokens.access_token.clone()),
+    );
+    if let Some(id_token) = &tokens.id_token {
+        token_fields.insert("id_token".into(), Value::String(id_token.clone()));
+    }
+    if let Some(refresh_token) = &tokens.refresh_token {
+        token_fields.insert("refresh_token".into(), Value::String(refresh_token.clone()));
+    }
+    if let (Some(fields), Some(now)) = (root.as_object_mut(), rfc3339_now()) {
+        fields.insert("last_refresh".into(), Value::String(now));
+    }
+    app_settings::write_json_atomic(path, &root)
+}
+
+fn rfc3339_now() -> Option<String> {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (hours, minutes, seconds) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let (year, month, day) = civil_from_days(days);
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z"
+    ))
+}
+
+// Hinnant's days-from-epoch to civil-date conversion (proleptic Gregorian).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
+/// Newest rate-limit snapshot the Codex CLI logged, chosen by event timestamp
+/// across every session file: an older file can hold a newer event.
+fn read_codex_rate_limits_from_dir(sessions_dir: &Path) -> Option<UsageData> {
+    let mut session_files = Vec::new();
+    visit_session_files(sessions_dir, &mut session_files);
+
+    let mut newest: Option<(SystemTime, UsageData)> = None;
+    for path in session_files {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in content.lines() {
+            let Ok(event) = serde_json::from_str::<CodexSessionEvent>(line) else {
+                continue;
+            };
+            let Some((timestamp, usage)) = codex_usage_from_event(event) else {
+                continue;
+            };
+            if newest
+                .as_ref()
+                .is_none_or(|(current, _)| timestamp > *current)
+            {
+                newest = Some((timestamp, usage));
+            }
+        }
+    }
+    newest.map(|(_, usage)| usage)
+}
+
+fn codex_usage_from_event(event: CodexSessionEvent) -> Option<(SystemTime, UsageData)> {
+    if event.event_type != "event_msg"
+        || event.payload.payload_type.as_deref() != Some("token_count")
+    {
+        return None;
+    }
+    let timestamp = parse_iso8601(event.timestamp.as_deref())?;
+    let limits = event.payload.rate_limits?;
+    if limits.limit_id.as_deref() != Some("codex") {
+        return None;
+    }
+
+    let mut data = UsageData::default();
+    for (window, default_is_weekly) in [(&limits.primary, false), (&limits.secondary, true)] {
+        let section = UsageSection {
+            available: true,
+            percentage: window.used_percent,
+            resets_at: unix_to_system_time(window.resets_at),
+        };
+        let is_weekly = window
+            .window_minutes
+            .filter(|minutes| *minutes > 0)
+            .map(|minutes| minutes * 60 >= WEEKLY_WINDOW_THRESHOLD_SECONDS)
+            .unwrap_or(default_is_weekly);
+        if is_weekly {
+            data.weekly = section;
+        } else {
+            data.session = section;
+        }
+    }
+    Some((timestamp, data))
+}
+
+fn visit_session_files(directory: &Path, session_files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            visit_session_files(&path, session_files);
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("jsonl") {
+            session_files.push(path);
+        }
+    }
+}
+
+/// A snapshot whose reset has passed is a window that has since rolled over.
+/// Without this, an old snapshot keeps the post-reset fast poll firing forever.
+fn roll_over_section(section: &mut UsageSection, window: Duration) {
+    let Some(reset) = section.resets_at else {
+        return;
+    };
+    let Ok(elapsed) = SystemTime::now().duration_since(reset) else {
+        return;
+    };
+    let window_secs = window.as_secs();
+    if window_secs == 0 {
+        return;
+    }
+    let windows_passed = elapsed.as_secs() / window_secs + 1;
+    section.percentage = 0.0;
+    section.resets_at = reset.checked_add(Duration::from_secs(windows_passed * window_secs));
 }
 
 fn codex_section_from_individual_limit(limit: &CodexIndividualLimit) -> Option<UsageSection> {
@@ -866,5 +1134,157 @@ mod tests {
             assert_eq!(data.weekly_label.as_deref(), Some("30d"));
             assert_eq!(data.monthly.as_ref(), Some(&data.weekly));
         }
+    }
+
+    #[test]
+    fn a_window_without_a_reset_keeps_its_percentage() {
+        let data = usage_from_json(
+            r#"{"rate_limit":{"primary_window":{"used_percent":12,"limit_window_seconds":18000},"secondary_window":{"used_percent":40,"reset_at":null,"limit_window_seconds":604800}}}"#,
+        );
+
+        assert!(data.session.available);
+        assert_eq!(data.session.percentage, 12.0);
+        assert!(data.session.resets_at.is_none());
+        assert_eq!(data.weekly.percentage, 40.0);
+        assert!(data.weekly.resets_at.is_none());
+    }
+
+    fn session_line(timestamp: &str, primary: &str, secondary: &str) -> String {
+        format!(
+            r#"{{"timestamp":"{timestamp}","type":"event_msg","payload":{{"type":"token_count","rate_limits":{{"limit_id":"codex","primary":{primary},"secondary":{secondary}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn session_reader_uses_latest_event_timestamp_across_files() {
+        let root = tempfile::tempdir().unwrap();
+        let older_dir = root.path().join("2026").join("03").join("24");
+        let newer_dir = root.path().join("2026").join("03").join("25");
+        std::fs::create_dir_all(&older_dir).unwrap();
+        std::fs::create_dir_all(&newer_dir).unwrap();
+        // the file in the older directory holds the newer event
+        std::fs::write(
+            older_dir.join("older.jsonl"),
+            session_line(
+                "2026-03-25T12:34:34.363Z",
+                r#"{"used_percent":0.0,"resets_at":1774460043}"#,
+                r#"{"used_percent":7.0,"resets_at":1774532923}"#,
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            newer_dir.join("newer.jsonl"),
+            session_line(
+                "2026-03-25T11:00:00.000Z",
+                r#"{"used_percent":15.0,"resets_at":1774453200}"#,
+                r#"{"used_percent":7.0,"resets_at":1774532923}"#,
+            ),
+        )
+        .unwrap();
+
+        let data = read_codex_rate_limits_from_dir(root.path()).unwrap();
+
+        assert_eq!(data.session.percentage, 0.0);
+        assert_eq!(data.weekly.percentage, 7.0);
+        assert!(data.session.available && data.weekly.available);
+    }
+
+    #[test]
+    fn session_windows_route_by_length_then_position() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("a.jsonl"),
+            [
+                "not json".to_string(),
+                session_line(
+                    "2026-03-25T12:00:00Z",
+                    r#"{"used_percent":30.0,"resets_at":1774532923,"window_minutes":10080}"#,
+                    r#"{"used_percent":0.0,"resets_at":1774460043,"window_minutes":300}"#,
+                ),
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let data = read_codex_rate_limits_from_dir(root.path()).unwrap();
+
+        assert_eq!(data.weekly.percentage, 30.0);
+        assert_eq!(data.session.percentage, 0.0);
+    }
+
+    #[test]
+    fn missing_session_directory_has_no_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(read_codex_rate_limits_from_dir(&root.path().join("sessions")).is_none());
+    }
+
+    #[test]
+    fn roll_over_zeros_a_stale_window_and_advances_its_reset() {
+        let mut section = UsageSection {
+            available: true,
+            percentage: 100.0,
+            resets_at: Some(SystemTime::now() - Duration::from_secs(60)),
+        };
+
+        roll_over_section(&mut section, CODEX_SESSION_WINDOW);
+
+        assert_eq!(section.percentage, 0.0);
+        let remaining = section
+            .resets_at
+            .unwrap()
+            .duration_since(SystemTime::now())
+            .unwrap();
+        assert!(remaining <= CODEX_SESSION_WINDOW);
+        assert!(remaining > CODEX_SESSION_WINDOW - Duration::from_secs(120));
+    }
+
+    #[test]
+    fn roll_over_leaves_a_live_reading_untouched() {
+        let future = SystemTime::now() + Duration::from_secs(1800);
+        let mut section = UsageSection {
+            available: true,
+            percentage: 73.0,
+            resets_at: Some(future),
+        };
+
+        roll_over_section(&mut section, CODEX_SESSION_WINDOW);
+
+        assert_eq!(section.percentage, 73.0);
+        assert_eq!(section.resets_at, Some(future));
+    }
+
+    #[test]
+    fn civil_from_days_matches_known_dates() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(20621), (2026, 6, 17));
+        assert_eq!(civil_from_days(18321), (2020, 2, 29));
+    }
+
+    #[test]
+    fn persisting_refreshed_tokens_keeps_unrelated_auth_fields() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("auth.json");
+        std::fs::write(
+            &path,
+            r#"{"OPENAI_API_KEY":null,"tokens":{"access_token":"old","refresh_token":"r1","account_id":"acct","id_token":"i1"},"last_refresh":"2026-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+        let tokens = CodexTokenData {
+            access_token: "new".into(),
+            account_id: Some("acct".into()),
+            refresh_token: Some("r2".into()),
+            id_token: Some("i1".into()),
+        };
+
+        persist_codex_auth(&path, &tokens).unwrap();
+
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["tokens"]["access_token"], "new");
+        assert_eq!(saved["tokens"]["refresh_token"], "r2");
+        assert_eq!(saved["tokens"]["account_id"], "acct");
+        assert!(saved["OPENAI_API_KEY"].is_null());
+        assert_ne!(saved["last_refresh"], "2026-01-01T00:00:00Z");
+        let reread = read_codex_credentials_at(&path).unwrap();
+        assert_eq!(reread.access_token, "new");
     }
 }

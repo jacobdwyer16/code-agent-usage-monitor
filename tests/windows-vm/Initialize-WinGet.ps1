@@ -16,7 +16,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'WinGet command unavailable.' }
     winget source update --name winget --disable-interactivity 2>&1 | Out-File C:\CCUM-Lab\winget-source.log
     # Source update can return zero even on cancellation; require a successful lookup.
-    winget show --id CodeZeno.ClaudeCodeUsageMonitor --exact --source winget --accept-source-agreements --disable-interactivity 2>&1 |
+    winget show --id JacobDwyer.CodeAgentUsageMonitor --exact --source winget --accept-source-agreements --disable-interactivity 2>&1 |
         Out-File C:\CCUM-Lab\winget-package.log
     if ($LASTEXITCODE -ne 0) { throw "WinGet package lookup failed: $LASTEXITCODE" }
     $result.status = 'passed'

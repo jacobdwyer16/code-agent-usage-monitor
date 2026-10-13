@@ -94,7 +94,9 @@ where
     let value = u32::deserialize(deserializer)?;
     Ok(match value {
         crate::app_settings::POLL_1_MIN
+        | crate::app_settings::POLL_3_MIN
         | crate::app_settings::POLL_5_MIN
+        | crate::app_settings::POLL_10_MIN
         | crate::app_settings::POLL_15_MIN
         | crate::app_settings::POLL_1_HOUR => value / 1_000,
         _ => value,
@@ -243,7 +245,9 @@ fn validate_items(
                         if !matches!(
                             *seconds,
                             crate::app_settings::POLL_1_MIN_SECONDS
+                                | crate::app_settings::POLL_3_MIN_SECONDS
                                 | crate::app_settings::POLL_5_MIN_SECONDS
+                                | crate::app_settings::POLL_10_MIN_SECONDS
                                 | crate::app_settings::POLL_15_MIN_SECONDS
                                 | crate::app_settings::POLL_1_HOUR_SECONDS
                         ) =>
@@ -314,9 +318,12 @@ pub fn rendered_label(
         "Cursor" => language.text("Cursor"),
         "Grok" => language.text("Grok"),
         "Copilot" => language.text("Copilot"),
+        "Muse" => language.text("Muse"),
         "Open Dashboard" => language.text("Open Dashboard"),
         "Every minute" => language.text("Every minute"),
+        "Every 3 minutes" => language.text("Every 3 minutes"),
         "Every 5 minutes" => language.text("Every 5 minutes"),
+        "Every 10 minutes" => language.text("Every 10 minutes"),
         "Every 15 minutes" => language.text("Every 15 minutes"),
         "Every hour" => language.text("Every hour"),
         "Providers" => language.text("Providers"),
@@ -344,10 +351,24 @@ pub fn classic_context_menu() -> ContextMenuDocument {
                 },
             ),
             ContextMenuItem::action(
+                "frequency-3-minutes",
+                "Every 3 minutes",
+                Action::SetUpdateFrequency {
+                    seconds: crate::app_settings::POLL_3_MIN_SECONDS,
+                },
+            ),
+            ContextMenuItem::action(
                 "frequency-5-minutes",
                 "Every 5 minutes",
                 Action::SetUpdateFrequency {
                     seconds: crate::app_settings::POLL_5_MIN_SECONDS,
+                },
+            ),
+            ContextMenuItem::action(
+                "frequency-10-minutes",
+                "Every 10 minutes",
+                Action::SetUpdateFrequency {
+                    seconds: crate::app_settings::POLL_10_MIN_SECONDS,
                 },
             ),
             ContextMenuItem::action(
@@ -417,6 +438,13 @@ pub fn classic_context_menu() -> ContextMenuDocument {
                 "Copilot",
                 Action::ToggleProvider {
                     provider: Provider::Copilot,
+                },
+            ),
+            ContextMenuItem::action(
+                "provider-muse",
+                "Muse",
+                Action::ToggleProvider {
+                    provider: Provider::Muse,
                 },
             ),
         ],

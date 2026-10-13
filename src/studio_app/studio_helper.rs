@@ -302,9 +302,11 @@ const MENU_ACTIONS: &[ActionSpec] = &[
     ),
 ];
 
-const UPDATE_FREQUENCIES: [(u32, &str); 4] = [
+const UPDATE_FREQUENCIES: [(u32, &str); 6] = [
     (POLL_1_MIN_SECONDS, "Every minute"),
+    (POLL_3_MIN_SECONDS, "Every 3 minutes"),
     (POLL_5_MIN_SECONDS, "Every 5 minutes"),
+    (POLL_10_MIN_SECONDS, "Every 10 minutes"),
     (POLL_15_MIN_SECONDS, "Every 15 minutes"),
     (POLL_1_HOUR_SECONDS, "Every hour"),
 ];

@@ -1,6 +1,6 @@
 # User guide
 
-Start here to customise Claude Code Usage Monitor and adjust its everyday settings.
+Start here to customise Code Agent Usage Monitor and adjust its everyday settings.
 For installation and provider sign-in requirements, see the [README](README.md).
 The instructions below use the app's English labels.
 
@@ -21,10 +21,10 @@ menu beside the clock.
 You can also open the dashboard from PowerShell:
 
 ```powershell
-claude-code-usage-monitor --dashboard
+code-agent-usage-monitor --dashboard
 ```
 
-For a portable download, run `.\claude-code-usage-monitor.exe --dashboard` from
+For a portable download, run `.\code-agent-usage-monitor.exe --dashboard` from
 the folder containing the executable.
 
 ## Duplicate and customise a built-in theme
@@ -74,7 +74,7 @@ the selected theme; your saved custom copy remains available in the dropdown.
 Custom theme files are stored in:
 
 ```text
-%APPDATA%\ClaudeCodeUsageMonitor\themes
+%APPDATA%\CodeAgentUsageMonitor\themes
 ```
 
 ## Choose providers and refresh usage
@@ -345,7 +345,7 @@ Build a candidate, then run from an elevated Windows PowerShell host session:
 cargo build --release
 $credential = Get-Credential -UserName LabUser -Message 'Disposable VM local administrator'
 .\tests\windows-vm\Invoke-Lab.ps1 `
-  -CandidateExe .\target\release\claude-code-usage-monitor.exe `
+  -CandidateExe .\target\release\code-agent-usage-monitor.exe `
   -Credential $credential
 ```
 
@@ -354,8 +354,8 @@ Portable helper coverage (the candidate product version must be newer):
 ```powershell
 .\tests\windows-vm\Invoke-Lab.ps1 `
   -Flows portable-update-helper -Taskbars baseline `
-  -PreviousExe C:\LabBinaries\previous\claude-code-usage-monitor.exe `
-  -CandidateExe .\target\release\claude-code-usage-monitor.exe `
+  -PreviousExe C:\LabBinaries\previous\code-agent-usage-monitor.exe `
+  -CandidateExe .\target\release\code-agent-usage-monitor.exe `
   -Credential $credential
 ```
 

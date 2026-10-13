@@ -66,12 +66,12 @@ public static class CCUMWarpDesktop {
     public static IntPtr Find() {
         IntPtr found=IntPtr.Zero;
         EnumWindows((h,p) => { var s=new StringBuilder(256); GetWindowText(h,s,256);
-            if (IsWindowVisible(h) && s.ToString()=="Usage Monitor") { found=h; return false; } return true; },IntPtr.Zero);
+            if (IsWindowVisible(h) && s.ToString()=="Code Agent Usage Monitor Dashboard") { found=h; return false; } return true; },IntPtr.Zero);
         return found;
     }
 }
 '@
-    $log = "$env:TEMP\claude-code-usage-monitor.log"
+    $log = "$env:TEMP\code-agent-usage-monitor.log"
     $owner = @([CCUMLabDesktop]::WindowsForProcess($app.Id) | Where-Object Visible)[0].Handle
     foreach ($mode in @('automatic', 'explicit')) {
         $startOffset = (Get-Content -LiteralPath $log -Raw).Length

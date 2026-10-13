@@ -2,14 +2,10 @@
 
 ## Report a vulnerability privately
 
-Email [contact@codezeno.com.au](mailto:contact@codezeno.com.au) with the subject
-`[Security] Claude Code Usage Monitor`. This is Code Zeno's contact address,
-published on [codezeno.com.au](https://codezeno.com.au/).
-
-Do **not** report suspected vulnerabilities in public issues, pull requests, or
-discussions. If you are unsure whether a problem is security-related, use email
-first. GitHub private vulnerability reporting is not currently enabled for this
-repository; email is the private reporting route.
+Open a [private security advisory](https://github.com/jacobdwyer16/code-agent-usage-monitor/security/advisories/new).
+If the problem also affects [upstream](https://github.com/CodeZeno/Claude-Code-Usage-Monitor),
+report it to Code Zeno too. Do **not** report vulnerabilities in public issues
+or pull requests.
 
 Include what you can safely share:
 

@@ -1,8 +1,34 @@
 # Changelog
 
-Notable changes to Claude Code Usage Monitor are documented here, newest first.
+Notable changes to Code Agent Usage Monitor are documented here, newest first.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with
 changes grouped into Added, Changed, Fixed, and Removed where applicable.
+Entries from 2.19.4 down are upstream Claude Code Usage Monitor releases.
+
+## [Unreleased] - fork
+
+Rebased onto upstream 2.19.4.
+
+### Added
+
+- Columns theme, now the default: the fork's side-by-side provider columns in vendor colours.
+- Codex falls back to the newest `~/.codex/sessions` snapshot when its usage service is unreachable.
+- Codex refreshes rejected tokens through OpenAI's OAuth endpoint before falling back to the Codex CLI.
+- Meta Muse Code provider (`Mu 5h`/`Mu 7d`), read from the `muse login` credentials. Untested against a live account.
+- 3- and 10-minute update frequencies.
+- Codex is enabled by default, and the 1.x `tracker_visibility` setting migrates to the provider toggles.
+
+### Fixed
+
+- Claude no longer probes an idle window, which would start it.
+- A Codex window without a reset time no longer fails the poll.
+- Claude reset headers are accepted in ISO 8601.
+- A failed taskbar embed shows a topmost popup instead of an invisible window.
+
+### Changed
+
+- Rebranded as Code Agent Usage Monitor so it can run beside an upstream install.
+- The updater uses this fork's releases, and WinGet publishing is removed.
 
 ## [2.19.4] - 2026-10-13
 

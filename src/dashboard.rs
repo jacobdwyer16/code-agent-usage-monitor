@@ -15,9 +15,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MB_OK, SW_RESTORE, WM_CLOSE,
 };
 
-const DASHBOARD_TITLE: &str = "Usage Monitor";
-const DASHBOARD_MUTEX: &str = "Local\\ClaudeCodeUsageMonitorDashboard";
-const DASHBOARD_REQUEST_EVENT: &str = "Local\\ClaudeCodeUsageMonitorOpenDashboard";
+const DASHBOARD_TITLE: &str = "Code Agent Usage Monitor Dashboard";
+const DASHBOARD_MUTEX: &str = "Local\\CodeAgentUsageMonitorDashboard";
+const DASHBOARD_REQUEST_EVENT: &str = "Local\\CodeAgentUsageMonitorOpenDashboard";
 
 /// Display-only snapshot shared with the dashboard process. The monitor keeps
 /// the authoritative release descriptor and chooses the installation channel.

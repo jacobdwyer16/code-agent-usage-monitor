@@ -11,7 +11,7 @@ use super::{
     PollError,
 };
 use crate::diagnose;
-use crate::models::{CreditsSection, UsageData};
+use crate::models::{CreditsSection, UsageData, UsageSection};
 
 mod cli;
 mod limits;
@@ -168,13 +168,26 @@ fn account_watch_signature_with_desktop(path: &Path, desktops: &[PathBuf]) -> St
     crate::accounts::fingerprint(&signature)
 }
 
+fn needs_reset_probe(section: &UsageSection) -> bool {
+    section.available && section.resets_at.is_none() && section.percentage > 0.0
+}
+
+/// A probe message would start an idle window (0%, no reset), so any idle
+/// window vetoes it.
+fn should_probe_for_resets(data: &UsageData) -> bool {
+    let idle = |section: &UsageSection| {
+        section.available && section.resets_at.is_none() && section.percentage <= 0.0
+    };
+    (needs_reset_probe(&data.session) || needs_reset_probe(&data.weekly))
+        && !idle(&data.session)
+        && !idle(&data.weekly)
+}
+
 pub(super) fn fetch_usage_with_fallback(token: &str) -> Result<UsageData, PollError> {
     // Try the dedicated usage endpoint first
     if let Some(data) = try_usage_endpoint(token)? {
         // If reset timers are missing, fill them in from the Messages API
-        if (data.session.available && data.session.resets_at.is_none())
-            || (data.weekly.available && data.weekly.resets_at.is_none())
-        {
+        if should_probe_for_resets(&data) {
             if let Ok(fallback) = fetch_usage_via_messages(token) {
                 let mut merged = data;
                 merged.session.available |= fallback.session.available;
@@ -1218,6 +1231,59 @@ mod tests {
             assert_eq!(data.session.percentage, percentage);
             assert!(data.session.resets_at.is_none());
             assert!(!data.weekly.available);
+        }
+    }
+
+    #[test]
+    fn only_windows_already_in_use_trigger_a_reset_probe() {
+        let section = |percentage: f64, resets_at: Option<SystemTime>| UsageSection {
+            available: true,
+            percentage,
+            resets_at,
+        };
+        assert!(!needs_reset_probe(&section(0.0, None)));
+        assert!(needs_reset_probe(&section(42.0, None)));
+        assert!(!needs_reset_probe(&section(42.0, Some(UNIX_EPOCH))));
+        assert!(!needs_reset_probe(&UsageSection::default()));
+    }
+
+    #[test]
+    fn an_idle_window_vetoes_the_reset_probe_for_both_windows() {
+        let section = |percentage: f64, resets_at: Option<SystemTime>| UsageSection {
+            available: true,
+            percentage,
+            resets_at,
+        };
+        let data = |session, weekly| UsageData {
+            session,
+            weekly,
+            ..Default::default()
+        };
+        assert!(should_probe_for_resets(&data(
+            section(10.0, None),
+            section(40.0, Some(UNIX_EPOCH))
+        )));
+        assert!(!should_probe_for_resets(&data(
+            section(0.0, None),
+            section(40.0, None)
+        )));
+        assert!(!should_probe_for_resets(&data(
+            section(10.0, Some(UNIX_EPOCH)),
+            section(40.0, Some(UNIX_EPOCH))
+        )));
+    }
+
+    #[test]
+    fn reset_headers_accept_iso_8601_as_well_as_unix_seconds() {
+        for value in ["1787198224", "2026-08-20T03:57:04Z"] {
+            let response = ureq::http::Response::builder()
+                .header("anthropic-ratelimit-unified-5h-reset", value)
+                .body(ureq::Body::builder().data(Vec::new()))
+                .unwrap();
+            assert_eq!(
+                get_header_i64(&response, "anthropic-ratelimit-unified-5h-reset"),
+                Some(1787198224)
+            );
         }
     }
 

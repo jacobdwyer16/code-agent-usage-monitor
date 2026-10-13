@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use eframe::egui;
+use lucide_icons::Icon as LucideIcon;
 use windows::Win32::Graphics::Gdi::{
     CreateFontIndirectW, DeleteObject, GetDC, GetFontData, ReleaseDC, SelectObject, GDI_ERROR,
 };
@@ -62,6 +63,8 @@ pub(crate) fn provider_mark_glyph(provider: ProviderId) -> char {
         ProviderId::Cursor => '\u{f005}',
         ProviderId::Grok => '\u{f006}',
         ProviderId::Copilot => '\u{f007}',
+        // stands in for Meta's infinity mark until it is drawn into the font
+        ProviderId::Muse => LucideIcon::Infinity.unicode(),
     }
 }
 

@@ -1161,7 +1161,9 @@ pub(super) fn surface_nest_name(language: LanguageId, nest: SurfaceNest) -> &'st
 pub(super) fn interval_name(language: LanguageId, value: u32) -> &'static str {
     match value {
         POLL_1_MIN => language.text("Every minute"),
+        POLL_3_MIN => language.text("Every 3 minutes"),
         POLL_5_MIN => language.text("Every 5 minutes"),
+        POLL_10_MIN => language.text("Every 10 minutes"),
         POLL_15_MIN => language.text("Every 15 minutes"),
         POLL_1_HOUR => language.text("Every hour"),
         _ => language.text("Custom"),

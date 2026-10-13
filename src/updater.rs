@@ -17,7 +17,7 @@ const DOWNLOAD_EXE_NAME: &str = "update-download.exe";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 // Keep this aligned with the package identifier used in winget-pkgs.
-const WINGET_PACKAGE_ID: &str = "CodeZeno.ClaudeCodeUsageMonitor";
+const WINGET_PACKAGE_ID: &str = "JacobDwyer.CodeAgentUsageMonitor";
 // `winget show` exit code when the package is not in the source.
 const WINGET_NO_APPLICATIONS_FOUND: u32 = 0x8A15_0014;
 const WINGET_SHOW_TIMEOUT: Duration = Duration::from_secs(60);
@@ -373,11 +373,11 @@ fn wait_for_process_exit(pid: u32, timeout: Duration) -> Result<(), String> {
 
 fn updates_dir() -> Result<PathBuf, String> {
     crate::known_folders::local_app_data_dir()
-        .map(|dir| dir.join("ClaudeCodeUsageMonitor").join("updates"))
+        .map(|dir| dir.join("CodeAgentUsageMonitor").join("updates"))
         .or_else(|| {
             Some(
                 std::env::temp_dir()
-                    .join("ClaudeCodeUsageMonitor")
+                    .join("CodeAgentUsageMonitor")
                     .join("updates"),
             )
         })

@@ -46,7 +46,7 @@ counts, including explicit skips for layouts a case does not exercise.
 $credential = Import-Clixml C:\work\CCUM-Lab\credential.clixml
 .\tests\windows-vm\Invoke-Lab.ps1 -Suite smoke `
   -ConfigPath C:\work\CCUM-Lab\lab.runtime.json `
-  -CandidateExe .\target\release\claude-code-usage-monitor.exe `
+  -CandidateExe .\target\release\code-agent-usage-monitor.exe `
   -Credential $credential
 ```
 

@@ -100,7 +100,7 @@ fn is_winget_install_path_accepts_configured_roots_and_descendants() {
     for root in roots {
         assert!(is_winget_install_path(&root), "root: {}", root.display());
         let executable = root
-            .join("CodeZeno.ClaudeCodeUsageMonitor_source")
+            .join("JacobDwyer.CodeAgentUsageMonitor_source")
             .join("app.exe");
         let path = executable.to_string_lossy();
         for variant in [
@@ -155,7 +155,7 @@ fn winget_upgrade_command_waits_upgrades_and_restarts_only_on_success() {
             "$target = 'C:\\Usage Monitor\\app.exe'; ",
             "$workingDir = 'C:\\Usage Monitor'; ",
             "try { Wait-Process -Id $pidToWait -Timeout 30 -ErrorAction Stop } catch { }; ",
-            "winget upgrade --id CodeZeno.ClaudeCodeUsageMonitor --exact --source winget; ",
+            "winget upgrade --id JacobDwyer.CodeAgentUsageMonitor --exact --source winget; ",
             "$exitCode = $LASTEXITCODE; ",
             "if ($exitCode -eq 0) { ",
             "Start-Sleep -Seconds 2; ",
@@ -203,13 +203,13 @@ fn winget_upgrade_command_quotes_each_path_as_a_powershell_literal() {
 fn winget_show_args_list_versions_non_interactively() {
     assert_eq!(
         WINGET_SHOW_VERSIONS_ARGS.join(" "),
-        "show --id CodeZeno.ClaudeCodeUsageMonitor --exact --versions --source winget --accept-source-agreements --disable-interactivity"
+        "show --id JacobDwyer.CodeAgentUsageMonitor --exact --versions --source winget --accept-source-agreements --disable-interactivity"
     );
 }
 
 #[test]
 fn winget_versions_outcome_parses_versions_under_localized_headers() {
-    let stdout = "Trouvé Claude Code Usage Monitor [CodeZeno.ClaudeCodeUsageMonitor]\r\n\
+    let stdout = "Trouvé Code Agent Usage Monitor [JacobDwyer.CodeAgentUsageMonitor]\r\n\
         Version\r\n-------\r\n2.15.14\r\n2.15.0\r\n  2.14.55  \r\n1.3\r\n";
     assert_eq!(
         winget_versions_outcome(Some(0), stdout),

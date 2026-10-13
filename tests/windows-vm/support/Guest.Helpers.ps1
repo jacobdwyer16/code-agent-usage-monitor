@@ -11,8 +11,8 @@ if ($Root -notmatch '^C:\\CCUM-Lab\\[a-f0-9]{32}$' -or
 $request = $Context.Request
 $evidence = $Context.Evidence
 $sessionId = $Context.SessionId
-$appName = 'claude-code-usage-monitor'
-$packageId = 'CodeZeno.ClaudeCodeUsageMonitor'
+$appName = 'code-agent-usage-monitor'
+$packageId = 'JacobDwyer.CodeAgentUsageMonitor'
 $settingsPath = $Context.SettingsPath
 
 function Assert-Check([string]$Name, [bool]$Condition, $Detail, [switch]$ContinueOnFailure) {
@@ -167,7 +167,7 @@ function Start-TestApp {
     $process = Start-Process -FilePath $Executable -ArgumentList '--diagnose' -PassThru
     Assert-App $Executable 'initial'
     Assert-Settings
-    Copy-Item -LiteralPath "$env:TEMP\claude-code-usage-monitor.log" -Destination "$evidence\initial-diagnostics.log"
+    Copy-Item -LiteralPath "$env:TEMP\code-agent-usage-monitor.log" -Destination "$evidence\initial-diagnostics.log"
     return $process
 }
 function Test-AppRestart {

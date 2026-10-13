@@ -7,8 +7,8 @@ assignees: []
 ---
 
 <!--
-This report will be public. For suspected vulnerabilities, email
-contact@codezeno.com.au instead. Read the security policy:
+This report will be public. For suspected vulnerabilities, open a private
+security advisory instead. Read the security policy:
 https://github.com/CodeZeno/Claude-Code-Usage-Monitor/blob/main/SECURITY.md
 Never include credential files, OAuth tokens, API keys, session cookies, or
 authorization headers. Redact personal information from logs and screenshots.

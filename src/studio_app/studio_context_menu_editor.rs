@@ -383,12 +383,19 @@ pub(super) fn parse_context_menu_action_script(script: &str) -> Result<ContextMe
             .parse::<u32>()
             .map_err(|_| "Update frequency must be seconds".to_string())?;
         let seconds = match seconds {
-            POLL_1_MIN | POLL_5_MIN | POLL_15_MIN | POLL_1_HOUR => seconds / 1_000,
+            POLL_1_MIN | POLL_3_MIN | POLL_5_MIN | POLL_10_MIN | POLL_15_MIN | POLL_1_HOUR => {
+                seconds / 1_000
+            }
             seconds => seconds,
         };
         if !matches!(
             seconds,
-            POLL_1_MIN_SECONDS | POLL_5_MIN_SECONDS | POLL_15_MIN_SECONDS | POLL_1_HOUR_SECONDS
+            POLL_1_MIN_SECONDS
+                | POLL_3_MIN_SECONDS
+                | POLL_5_MIN_SECONDS
+                | POLL_10_MIN_SECONDS
+                | POLL_15_MIN_SECONDS
+                | POLL_1_HOUR_SECONDS
         ) {
             return Err("Choose a supported update frequency".into());
         }
@@ -443,7 +450,9 @@ pub(super) fn context_menu_action_editor(
                     .show_ui(ui, |ui| {
                         for (value, label) in [
                             (POLL_1_MIN_SECONDS, "Every minute"),
+                            (POLL_3_MIN_SECONDS, "Every 3 minutes"),
                             (POLL_5_MIN_SECONDS, "Every 5 minutes"),
+                            (POLL_10_MIN_SECONDS, "Every 10 minutes"),
                             (POLL_15_MIN_SECONDS, "Every 15 minutes"),
                             (POLL_1_HOUR_SECONDS, "Every hour"),
                         ] {

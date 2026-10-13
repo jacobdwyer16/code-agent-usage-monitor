@@ -34,8 +34,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::app_settings::{
-    self, SettingsFile, UsageCache, POLL_15_MIN, POLL_15_MIN_SECONDS, POLL_1_HOUR,
-    POLL_1_HOUR_SECONDS, POLL_1_MIN, POLL_1_MIN_SECONDS, POLL_5_MIN, POLL_5_MIN_SECONDS,
+    self, SettingsFile, UsageCache, POLL_10_MIN, POLL_10_MIN_SECONDS, POLL_15_MIN,
+    POLL_15_MIN_SECONDS, POLL_1_HOUR, POLL_1_HOUR_SECONDS, POLL_1_MIN, POLL_1_MIN_SECONDS,
+    POLL_3_MIN, POLL_3_MIN_SECONDS, POLL_5_MIN, POLL_5_MIN_SECONDS,
 };
 use crate::context_menu::{
     self, ContextMenuAction, ContextMenuDocument, ContextMenuItem, ContextMenuItemKind,
@@ -242,7 +243,7 @@ fn run_dashboard(
 ) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Usage Monitor")
+            .with_title("Code Agent Usage Monitor Dashboard")
             .with_inner_size([width, height])
             .with_icon(icon),
         renderer: eframe::Renderer::Glow,
@@ -250,7 +251,7 @@ fn run_dashboard(
         ..Default::default()
     };
     eframe::run_native(
-        "ClaudeCodeUsageMonitor.Studio",
+        "CodeAgentUsageMonitor.Studio",
         options,
         Box::new(move |context| Ok(Box::new(StudioApp::new(context, owner, initial_page)))),
     )

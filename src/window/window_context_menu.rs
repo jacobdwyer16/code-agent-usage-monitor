@@ -259,7 +259,9 @@ pub(super) fn execute_context_menu_action(
         ContextMenuAction::Refresh => Some(1),
         ContextMenuAction::SetUpdateFrequency { seconds } => match *seconds {
             POLL_1_MIN_SECONDS => Some(IDM_FREQ_1MIN),
+            POLL_3_MIN_SECONDS => Some(IDM_FREQ_3MIN),
             POLL_5_MIN_SECONDS => Some(IDM_FREQ_5MIN),
+            POLL_10_MIN_SECONDS => Some(IDM_FREQ_10MIN),
             POLL_15_MIN_SECONDS => Some(IDM_FREQ_15MIN),
             POLL_1_HOUR_SECONDS => Some(IDM_FREQ_1HOUR),
             _ => None,

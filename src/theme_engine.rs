@@ -23,6 +23,9 @@ pub const CLASSIC_THEME_ID: &str = "classic-usage-widget";
 pub const COMPACT_FLUENT_QUAD_THEME_ID: &str = "compact-fluent-quad";
 pub const CLASSIC_VERTICAL_THEME_ID: &str = "classic-vertical";
 pub const MINECRAFT_THEME_ID: &str = "theme-minecraft";
+pub const FORK_COLUMNS_THEME_ID: &str = "fork-columns";
+// classic stays at index 0 because upstream fixtures use starter()
+pub const DEFAULT_THEME_ID: &str = FORK_COLUMNS_THEME_ID;
 
 const BUILTIN_THEME_SOURCES: &[(&str, &str)] = &[
     (
@@ -36,6 +39,10 @@ const BUILTIN_THEME_SOURCES: &[(&str, &str)] = &[
     (
         CLASSIC_VERTICAL_THEME_ID,
         include_str!(concat!(env!("OUT_DIR"), "/classic-vertical.json")),
+    ),
+    (
+        FORK_COLUMNS_THEME_ID,
+        include_str!(concat!(env!("OUT_DIR"), "/fork-columns.json")),
     ),
 ];
 
@@ -2268,11 +2275,22 @@ impl ThemeDocument {
         theme
     }
 
+    pub fn default_builtin() -> Self {
+        let (_, source) = BUILTIN_THEME_SOURCES
+            .iter()
+            .find(|(id, _)| *id == DEFAULT_THEME_ID)
+            .expect("default theme must be registered as a built-in");
+        let mut theme: Self =
+            serde_json::from_str(source).expect("built-in default theme must be valid JSON");
+        theme.prepare_runtime();
+        theme
+    }
+
     /// Create the writable one-time upgrade target for pre-theme installs.
     /// Only the primary taskbar surface inherits legacy placement and
     /// visibility; notification-area roots remain registered with Explorer.
     pub fn migrated_from_legacy(placement: Option<(usize, i32)>, widget_visible: bool) -> Self {
-        let mut theme = Self::starter();
+        let mut theme = Self::default_builtin();
         theme.id = "migrated-theme".into();
         theme.name = "Migrated Theme".into();
         if let Some(surface) = theme.surfaces.first_mut() {

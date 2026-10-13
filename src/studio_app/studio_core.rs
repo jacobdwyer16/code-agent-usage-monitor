@@ -79,7 +79,7 @@ impl StudioApp {
                 let theme = path
                     .as_deref()
                     .and_then(|path| theme_engine::load_theme(path).ok())
-                    .unwrap_or_else(ThemeDocument::starter);
+                    .unwrap_or_else(ThemeDocument::default_builtin);
                 (path, theme)
             });
         theme.prepare_runtime();
@@ -984,7 +984,7 @@ impl StudioApp {
     }
 
     pub(super) fn shell(&mut self, ui: &mut egui::Ui) {
-        const GITHUB_URL: &str = "https://github.com/CodeZeno/Claude-Code-Usage-Monitor";
+        const GITHUB_URL: &str = "https://github.com/jacobdwyer16/code-agent-usage-monitor";
 
         let language = self.language();
         let full_height = ui.available_height();

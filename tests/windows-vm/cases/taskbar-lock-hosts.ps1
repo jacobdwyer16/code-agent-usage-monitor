@@ -5,7 +5,7 @@ $executable = Install-PortableApp
 
 function Stop-App {
     foreach ($process in @(Get-AppProcesses)) {
-        $owner = @([CCUMScenarioDesktop]::HostWindows($process.Id) | Where-Object Class -EQ 'ClaudeCodeUsageMonitor')
+        $owner = @([CCUMScenarioDesktop]::HostWindows($process.Id) | Where-Object Class -EQ 'CodeAgentUsageMonitor')
         if ($owner.Count -eq 1) { [CCUMScenarioDesktop]::Post($owner[0].Handle, 0x10, 0, 0) }
         if (-not $process.WaitForExit(5000)) {
             try { Stop-Process -Id $process.Id -Force }
@@ -16,7 +16,7 @@ function Stop-App {
 }
 
 function Host-Windows { @([CCUMScenarioDesktop]::HostWindows((Get-AppProcesses)[0].Id)) }
-function Owner-Window { @(Host-Windows | Where-Object Class -EQ 'ClaudeCodeUsageMonitor')[0] }
+function Owner-Window { @(Host-Windows | Where-Object Class -EQ 'CodeAgentUsageMonitor')[0] }
 function Host-Ready([string]$Kind) {
     $visible = @(Host-Windows | Where-Object Visible)
     switch ($Kind) {
@@ -54,7 +54,7 @@ function Start-HostApp([string]$Kind) {
     $null = Start-Process $executable -ArgumentList '--diagnose --no-poll' -WindowStyle Hidden
     Assert-Check 'host app single instance' (Wait-Condition { @(Get-AppProcesses).Count -eq 1 } 15) $executable
     # Restored Windows 11 guests can take over a minute to create the first window.
-    Assert-Check 'host owner created' (Wait-Condition { @(Host-Windows | Where-Object Class -EQ 'ClaudeCodeUsageMonitor').Count -eq 1 } 90) $executable
+    Assert-Check 'host owner created' (Wait-Condition { @(Host-Windows | Where-Object Class -EQ 'CodeAgentUsageMonitor').Count -eq 1 } 90) $executable
     # --no-poll deliberately skips initial tray registration. A settings reload
     # registers the theme icon without requesting provider polling.
     if ($Kind -eq 'tray_icon') { [CCUMScenarioDesktop]::Post((Owner-Window).Handle, 0x8005, 0, 0) }

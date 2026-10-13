@@ -2,7 +2,7 @@ param([Parameter(Mandatory)]$Context)
 . "$($Context.Root)\support\Guest.Helpers.ps1" -Context $Context
 if (-not ('CCUMScenarioDesktop' -as [type])) { Add-Type -Path "$Root\support\ScenarioDesktop.cs" -ReferencedAssemblies System.Drawing }
 [CCUMScenarioDesktop]::UsePhysicalPixels()
-$logPath = "$env:TEMP\claude-code-usage-monitor.log"
+$logPath = "$env:TEMP\code-agent-usage-monitor.log"
 
 function Wait-Condition([scriptblock]$Condition, [int]$Seconds = 40) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -254,7 +254,7 @@ function Toggle-Startup {
     Start-Sleep -Seconds 1
 }
 function Assert-StartupTarget([string]$Executable, [switch]$ContinueAfterQuoteFailure) {
-    $value = Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name ClaudeCodeUsageMonitor -ErrorAction SilentlyContinue
+    $value = Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name CodeAgentUsageMonitor -ErrorAction SilentlyContinue
     $validCommand = $value -eq ('"' + $Executable + '"') -or ($Executable -notmatch '\s' -and $value -eq $Executable)
     if ($ContinueAfterQuoteFailure -and $value -eq $Executable -and -not $validCommand) {
         # Keep the failed assertion, but still exercise reboot/update/uninstall
@@ -272,7 +272,7 @@ function Get-ResourceSample {
 }
 function Assert-StartupDisabled {
     $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    Assert-Check 'startup entry removed' (-not $entry.PSObject.Properties['ClaudeCodeUsageMonitor']) 'HKCU Run'
+    Assert-Check 'startup entry removed' (-not $entry.PSObject.Properties['CodeAgentUsageMonitor']) 'HKCU Run'
 }
 function Invoke-PortableUpdate([string]$Executable) {
     Copy-Item $Context.CandidateExe "$Root\updater-helper.exe" -Force

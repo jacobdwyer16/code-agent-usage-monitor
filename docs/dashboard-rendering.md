@@ -33,7 +33,7 @@ The painter adaptation and upstream attribution are recorded in
 To force software rendering for diagnosis:
 
 ```powershell
-.\target\release\claude-code-usage-monitor.exe --studio --dashboard-warp --diagnose
+.\target\release\code-agent-usage-monitor.exe --studio --dashboard-warp --diagnose
 ```
 
 The log records the D3D11 WARP adapter and first successful presentation. Normally
@@ -50,7 +50,7 @@ The VM flow exercises stock Hyper-V graphics where OpenGL initialization fails:
 .\tests\windows-vm\Invoke-Lab.ps1 `
   -ConfigPath C:\work\CCUM-Lab\lab.runtime.json `
   -Credential (Import-Clixml C:\work\CCUM-Lab\credential.clixml) `
-  -CandidateExe .\target\release\claude-code-usage-monitor.exe `
+  -CandidateExe .\target\release\code-agent-usage-monitor.exe `
   -Flows portable-dashboard-warp -Taskbars baseline
 ```
 

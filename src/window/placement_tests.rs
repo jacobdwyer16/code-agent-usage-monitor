@@ -6,6 +6,7 @@ fn builtins_leave_incompatible_taskbars_and_keep_compatible_layouts_docked() {
         include_str!("../themes/classic-usage-widget.json"),
         include_str!("../themes/compact-fluent-quad.json"),
         include_str!("../themes/classic-vertical.json"),
+        include_str!("../themes/fork-columns.json"),
     ];
     for (theme_index, source) in sources.iter().enumerate() {
         let mut theme: ThemeDocument = serde_json::from_str(source).unwrap();
@@ -232,6 +233,7 @@ fn horizontal_builtins_stay_locked_on_windows_10_across_dpi_and_provider_counts(
     for source in [
         include_str!("../themes/classic-usage-widget.json"),
         include_str!("../themes/compact-fluent-quad.json"),
+        include_str!("../themes/fork-columns.json"),
     ] {
         let mut theme: ThemeDocument = serde_json::from_str(source).unwrap();
         theme.prepare_runtime();

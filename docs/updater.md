@@ -8,7 +8,7 @@ version, even when GitHub has a later release. An equal or older source version
 means the installation is up to date. Source failures remain errors and never
 trigger a fallback to the other channel. WinGet upgrades use that same source.
 
-The portable updater accepts only the exact `claude-code-usage-monitor.exe`
+The portable updater accepts only the exact `code-agent-usage-monitor.exe`
 asset from the configured repository's latest stable GitHub release. It rejects
 duplicate assets, unexpected download URLs, invalid semantic versions, drafts,
 and prereleases (including prerelease tags incorrectly marked as stable).

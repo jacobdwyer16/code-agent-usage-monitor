@@ -13,7 +13,7 @@ $request = Get-Content -LiteralPath "$Root\request.json" -Raw | ConvertFrom-Json
 $Context = [pscustomobject]@{
     Root = $Root; Request = $request; Evidence = "$Root\evidence"
     SessionId = (Get-Process -Id $PID).SessionId
-    SettingsPath = "$env:APPDATA\ClaudeCodeUsageMonitor\settings.json"
+    SettingsPath = "$env:APPDATA\CodeAgentUsageMonitor\settings.json"
     CandidateExe = "$Root\candidate.exe"; PreviousExe = "$Root\previous.exe"
     Checks = [Collections.Generic.List[object]]::new()
     Phase = 'initial'
@@ -62,7 +62,7 @@ try {
     try { Save-Screenshot 'failure' } catch { $result['screenshotError'] = $_.Exception.Message }
 } finally {
     try { Stop-App } catch { $result.status = 'error'; $result['cleanupError'] = $_.Exception.Message }
-    foreach ($file in @($settingsPath, "$env:TEMP\claude-code-usage-monitor.log")) {
+    foreach ($file in @($settingsPath, "$env:TEMP\code-agent-usage-monitor.log")) {
         if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination $evidence -Force -ErrorAction Continue }
     }
     $result.checks = @($Context.Checks.ToArray())

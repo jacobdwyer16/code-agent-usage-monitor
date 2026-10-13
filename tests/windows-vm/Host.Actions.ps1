@@ -92,8 +92,8 @@ function Invoke-LabHostRequest($Request, $Scenario, $Target, [ref]$Session, $Cre
                         $createdId = [long]$fields.NewProcessId
                         $parentId = [long]$fields.ProcessId
                         # Reassign on PID reuse. Do not collect process command lines.
-                        $tracked[$createdId] = ($fields.NewProcessName -like '*\claude-code-usage-monitor.exe' -or ($tracked.ContainsKey($parentId) -and $tracked[$parentId]))
-                    } elseif (($fields.Application -like '*\claude-code-usage-monitor.exe' -or ($tracked.ContainsKey([long]$fields.ProcessID) -and $tracked[[long]$fields.ProcessID])) -and $fields.Direction -eq '%%14593') {
+                        $tracked[$createdId] = ($fields.NewProcessName -like '*\code-agent-usage-monitor.exe' -or ($tracked.ContainsKey($parentId) -and $tracked[$parentId]))
+                    } elseif (($fields.Application -like '*\code-agent-usage-monitor.exe' -or ($tracked.ContainsKey([long]$fields.ProcessID) -and $tracked[[long]$fields.ProcessID])) -and $fields.Direction -eq '%%14593') {
                         [pscustomobject]@{recordId=$_.RecordId; application=$fields.Application; pid=$fields.ProcessID; destination=$fields.DestAddress; port=$fields.DestPort; protocol=$fields.Protocol; eventId=$_.Id}
                     }
                 })

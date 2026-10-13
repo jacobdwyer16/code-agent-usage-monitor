@@ -100,6 +100,10 @@ impl LanguageId {
                 strings.copilot_token_expired_title,
                 strings.copilot_token_expired_body,
             ),
+            ProviderId::Muse => (
+                strings.muse_token_expired_title,
+                strings.muse_token_expired_body,
+            ),
         }
     }
 
@@ -149,6 +153,7 @@ pub struct Strings {
     pub cursor_model: &'static str,
     pub grok_model: &'static str,
     pub copilot_model: &'static str,
+    pub muse_model: &'static str,
     pub settings: &'static str,
     pub start_with_windows: &'static str,
     pub language: &'static str,
@@ -188,12 +193,15 @@ pub struct Strings {
     pub grok_token_expired_body: &'static str,
     pub copilot_token_expired_title: &'static str,
     pub copilot_token_expired_body: &'static str,
+    pub muse_token_expired_title: &'static str,
+    pub muse_token_expired_body: &'static str,
     pub codex_window_title: &'static str,
     pub antigravity_window_title: &'static str,
     pub opencode_window_title: &'static str,
     pub cursor_window_title: &'static str,
     pub grok_window_title: &'static str,
     pub copilot_window_title: &'static str,
+    pub muse_window_title: &'static str,
 }
 
 pub fn resolve_language(language_override: Option<LanguageId>) -> LanguageId {

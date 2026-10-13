@@ -223,7 +223,10 @@ pub fn window_class_name(hwnd: HWND) -> Option<String> {
 /// Host a layered surface inside a shell-owned window. Parenting makes the
 /// surface share the host's visibility and z-order instead of competing with
 /// it as an independent topmost popup.
-pub fn embed_as_child(hwnd: HWND, parent: HWND) {
+///
+/// Returns false and restores the original styles if the reparent fails; a
+/// parentless window with the child style is invisible.
+pub fn embed_as_child(hwnd: HWND, parent: HWND) -> bool {
     unsafe {
         let current_parent = GetParent(hwnd).ok();
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
@@ -240,17 +243,20 @@ pub fn embed_as_child(hwnd: HWND, parent: HWND) {
 
         if current_parent != Some(parent) {
             let _ = SetParent(hwnd, Some(parent));
+            if GetParent(hwnd).ok() != Some(parent) {
+                let _ = SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+                let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
+                return false;
+            }
             // Windows 11 can leave a reparented layered surface beneath the
             // taskbar's DirectComposition visual. Rebind it once after a
             // successful parent change, never during routine positioning.
             // Desktop DirectComposition windows are not layered and must stay
             // that way. Callers present fresh pixels after positioning.
-            if GetParent(hwnd).ok() == Some(parent) {
-                let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-                if ex_style & WS_EX_LAYERED.0 as i32 != 0 {
-                    let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as i32));
-                    let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
-                }
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            if ex_style & WS_EX_LAYERED.0 as i32 != 0 {
+                let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as i32));
+                let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
             }
         }
         let _ = SetWindowPos(
@@ -262,6 +268,7 @@ pub fn embed_as_child(hwnd: HWND, parent: HWND) {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         );
+        true
     }
 }
 

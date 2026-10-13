@@ -269,7 +269,8 @@ fn validate_context_menu(menu: &ContextMenuDocument) -> Result<(), String> {
 
 fn persist_theme(mut theme: ThemeDocument) -> Result<(ThemeDocument, PathBuf), String> {
     if theme.is_builtin() {
-        let path = theme_engine::ensure_starter_theme()?;
+        theme_engine::ensure_starter_theme()?;
+        let path = theme_engine::themes_directory().join(format!("{}.json", theme.id));
         let existing = theme_engine::load_theme(&path)?;
         if !themes_match(&existing, &theme) {
             return Err("An imported package cannot replace a built-in theme".into());
@@ -289,11 +290,10 @@ fn persist_context_menu(
     menu: ContextMenuDocument,
 ) -> Result<(ContextMenuDocument, PathBuf), String> {
     if menu.is_builtin() {
+        // the local built-in wins, so packages from versions with a different
+        // classic menu (such as upstream without 3/10-minute presets) still import
         context_menu::ensure_builtin_context_menus()?;
         let existing = context_menu::resolve_context_menu(Some(&menu.id))?;
-        if existing != menu {
-            return Err("An imported package cannot replace a built-in context menu".into());
-        }
         let path = context_menu::context_menus_directory().join(format!("{}.json", menu.id));
         return Ok((existing, path));
     }

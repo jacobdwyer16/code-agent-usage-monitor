@@ -137,7 +137,7 @@ public static class CCUMScenarioDesktop {
             // Never synchronously query captions on unrelated/hidden UIA windows.
             if(!candidates.Contains(owner) || !IsWindowVisible(h)) return true;
             var s=new StringBuilder(512); GetWindowText(h,s,s.Capacity);
-            if (s.ToString()=="Usage Monitor") found=h.ToInt64();
+            if (s.ToString()=="Code Agent Usage Monitor Dashboard") found=h.ToInt64();
             return true;
         },IntPtr.Zero);
         return found;
@@ -149,7 +149,7 @@ public static class CCUMScenarioDesktop {
             uint owner; GetWindowThreadProcessId(h, out owner);
             if (owner != pid || !seen.Add(h)) return true;
             var name = new StringBuilder(256); GetClassName(h, name, name.Capacity);
-            if (name.ToString() != "ClaudeCodeUsageMonitor" && name.ToString() != "CCUMDesktopSurface") return true;
+            if (name.ToString() != "CodeAgentUsageMonitor" && name.ToString() != "CCUMDesktopSurface") return true;
             Rect bounds;
             if (GetWindowRect(h, out bounds)) result.Add(new HostWindow { Handle=h.ToInt64(), Parent=GetParent(h).ToInt64(), Class=name.ToString(), Visible=IsWindowVisible(h), Bounds=bounds });
             return true;

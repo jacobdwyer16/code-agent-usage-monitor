@@ -86,10 +86,10 @@ fn rejects_oversized_and_empty_assets() {
 #[test]
 fn rejects_unexpected_download_locations() {
     for url in [
-        "http://github.com/CodeZeno/Claude-Code-Usage-Monitor/releases/download/v2.14.0/claude-code-usage-monitor.exe",
-        "https://example.com/claude-code-usage-monitor.exe",
-        "https://github.com/other/repo/releases/download/v2.14.0/claude-code-usage-monitor.exe",
-        "https://github.com/CodeZeno/Claude-Code-Usage-Monitor/releases/download/v2.13.44/claude-code-usage-monitor.exe",
+        "http://github.com/jacobdwyer16/code-agent-usage-monitor/releases/download/v2.14.0/code-agent-usage-monitor.exe",
+        "https://example.com/code-agent-usage-monitor.exe",
+        "https://github.com/other/repo/releases/download/v2.14.0/code-agent-usage-monitor.exe",
+        "https://github.com/jacobdwyer16/code-agent-usage-monitor/releases/download/v2.13.44/code-agent-usage-monitor.exe",
     ] {
         let mut value = fixture("v2.14.0");
         value["assets"][0]["browser_download_url"] = json!(url);

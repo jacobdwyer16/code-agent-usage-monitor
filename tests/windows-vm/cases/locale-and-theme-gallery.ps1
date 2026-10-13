@@ -5,7 +5,7 @@ $gallery = [Collections.Generic.List[object]]::new()
 # Covers LanguageId::ALL and horizontal built-ins. Classic Vertical is covered
 # on Windows 10 by vertical-taskbar.ps1; Test-Harness verifies catalogue drift.
 $languages = @('en','de','es','fr','ja','ko','nl','pl','pt-BR','ru','th','tr','zh-CN','zh-TW')
-$themes = @('classic-usage-widget','compact-fluent-quad')
+$themes = @('fork-columns','classic-usage-widget','compact-fluent-quad')
 try {
     # Install managed built-ins using the real app before selecting their paths.
     Initialize-TestSettings
