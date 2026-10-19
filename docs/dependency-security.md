@@ -1,10 +1,7 @@
 # Dependency security
 
-Dependabot checks Cargo dependencies weekly and opens update pull requests.
-Review the manifest and lockfile diff and run the Windows tests before merging.
-The egui family is grouped because its versions are coupled.
-
-There is no CI. Run the dependency checks locally with
+Nothing runs on GitHub: there is no CI and no automated
+dependency updates. Run the dependency checks locally with
 `tests/Test-Dependencies.ps1` (see [Run locally](#run-locally)). The checks do
 not require secrets.
 
@@ -62,13 +59,11 @@ the lockfile, vendored dependencies, or dependency policy change. Direct Cargo
 builds do not invoke this script automatically; it is a required release preparation
 step, also recorded in the local agent instructions.
 
-Scanner versions are pinned in these commands; Dependabot's Cargo updates cover
-application manifests, not `cargo install` commands.
+Scanner versions are pinned in these commands; update them here when upgrading.
 
 ## Vendored dependency
 
-`vendor/egui-winit` is a local patch and is not automatically refreshed by
-Dependabot. When the egui/eframe family changes, follow
+`vendor/egui-winit` is a local patch. When the egui/eframe family changes, follow
 [`vendor/egui-winit/PATCH.md`](../vendor/egui-winit/PATCH.md) to update the matching
 upstream source, reapply the text-only clipboard changes, and verify the feature
 graph. Review upstream security fixes for this copy explicitly: registry
