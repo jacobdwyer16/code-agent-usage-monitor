@@ -1,4 +1,4 @@
-# Run the same dependency gates as .github/workflows/dependency-security.yml.
+# Run the dependency gates (cargo audit and cargo deny) locally.
 # Install the scanner versions documented in docs/dependency-security.md first.
 [CmdletBinding()]
 param()

@@ -39,7 +39,7 @@ Code already running as the same Windows user is outside this trust boundary.
 GitHub computes asset digests for uploaded release assets; see the
 [GitHub release asset API](https://docs.github.com/en/rest/releases/assets).
 Releases without a digest cannot be installed through the portable updater.
-The release workflow does not need a separate checksum upload. WinGet continues
+Releases do not need a separate checksum upload. WinGet continues
 to perform installation through its own upgrade command.
 
 ## Tests
@@ -48,7 +48,7 @@ Run `cargo test --locked updater` on Windows. Tests exercise metadata selection,
 SemVer precedence, streamed size limits, known SHA-256 vectors, corrupt and
 truncated bodies, interrupted and failed I/O, partial-file cleanup, helper
 arguments, and Windows file locking. Tests do not download or execute updates.
-The release workflow runs these tests before building a release.
+Run these tests before building a release.
 Channel tests also cover source isolation, WinGet version parsing, and source
 errors. To verify the live WinGet listing without installing an update, run
 `cargo test --locked winget_lists_published_versions_from_the_live_source -- --ignored`.

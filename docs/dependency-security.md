@@ -1,13 +1,12 @@
 # Dependency security
 
-Dependabot checks Cargo dependencies and GitHub Actions weekly and opens update
-pull requests. Review the manifest and lockfile diff and run the Windows tests
-before merging. The egui family is grouped because its versions are coupled.
+Dependabot checks Cargo dependencies weekly and opens update pull requests.
+Review the manifest and lockfile diff and run the Windows tests before merging.
+The egui family is grouped because its versions are coupled.
 
-The `Dependency security` workflow runs on pull requests, branch pushes, a daily
-schedule, and manual dispatch. The release workflow calls the same checks and
-waits for them before building or publishing. Checks use read-only repository
-permissions and do not require secrets.
+There is no CI. Run the dependency checks locally with
+`tests/Test-Dependencies.ps1` (see [Run locally](#run-locally)). The checks do
+not require secrets.
 
 - `cargo audit` checks the entire committed `Cargo.lock` against the current
   RustSec advisory database and fails on known vulnerabilities. Informational
@@ -42,7 +41,7 @@ date is a maintenance reminder, not an automatically enforced expiration.
 
 ## Run locally
 
-Use the same scanner versions as `.github/workflows/dependency-security.yml`:
+Use these pinned scanner versions:
 
 ```powershell
 cargo install --locked cargo-audit --version 0.22.2
@@ -61,15 +60,10 @@ After a version or dependency change, first synchronize the lockfile with
 use the existing lockfile and do not update dependencies. Rerun them if manifests,
 the lockfile, vendored dependencies, or dependency policy change. Direct Cargo
 builds do not invoke this script automatically; it is a required release preparation
-step, also recorded in the local agent instructions. Release CI already enforces
-both scanner checks before its build job.
+step, also recorded in the local agent instructions.
 
-Scanner versions are pinned in the workflow and must be updated there and in
-these commands together; Dependabot's Cargo updates cover application manifests,
-not `cargo install` commands. The security workflow's GitHub Action revisions
-are pinned to commits and covered by the GitHub Actions updater. Require both
-scanner checks in branch protection if merges must be blocked; that repository
-setting is separate from the workflow files.
+Scanner versions are pinned in these commands; Dependabot's Cargo updates cover
+application manifests, not `cargo install` commands.
 
 ## Vendored dependency
 
