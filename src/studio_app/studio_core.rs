@@ -30,6 +30,7 @@ impl StudioApp {
             .with_language(language)
             .with_countdown(self.settings.usage_countdown)
             .with_fable(self.settings.show_fable)
+            .with_provider_order(&self.settings.provider_order)
     }
 
     pub(super) fn theme_runtime_for_surface(&self, surface_index: usize) -> ThemeRuntime {

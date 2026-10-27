@@ -790,6 +790,90 @@ fn built_in_classic_adds_a_fable_column_when_the_limit_is_available() {
 }
 
 #[test]
+fn columns_follow_saved_provider_order_without_gaps_or_overlaps() {
+    let mut theme: ThemeDocument =
+        serde_json::from_str(include_str!("../themes/fork-columns.json")).unwrap();
+    theme.prepare_runtime();
+    let data = AppUsageData::from_iter([(
+        ProviderId::Claude,
+        crate::models::UsageData {
+            limits: vec![crate::models::UsageLimit {
+                key: "weekly_scoped_fable".into(),
+                kind: "weekly_scoped".into(),
+                model: Some("Fable".into()),
+                usage: crate::models::UsageSection {
+                    available: true,
+                    percentage: 43.0,
+                    resets_at: None,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    )]);
+    for rotation in 0..8 {
+        let mut order = ProviderId::ALL;
+        order.reverse();
+        order.rotate_left(rotation);
+        for enabled in [
+            ProviderSet::from_enabled(ProviderId::ALL),
+            ProviderSet::from_enabled([
+                ProviderId::Claude,
+                ProviderId::Antigravity,
+                ProviderId::Muse,
+            ]),
+            ProviderSet::from_enabled([ProviderId::Antigravity]),
+        ] {
+            for fable in [false, true] {
+                let runtime = ThemeRuntime::from_providers(enabled)
+                    .with_provider_order(&order)
+                    .with_fable(fable);
+                let (width, height) = resolve_surface_size(&theme, 0, Some(&data), runtime);
+                let canvas = Canvas {
+                    width,
+                    height,
+                    ..Default::default()
+                };
+                let surface = &theme.surfaces[0];
+                let (objects, warnings) =
+                    resolve_objects_for(surface, &canvas, &surface.children, Some(&data), runtime);
+                assert!(warnings.is_empty(), "{warnings:?}");
+                let mut cursor = 13.0;
+                for provider in order {
+                    if !enabled.contains(provider) {
+                        continue;
+                    }
+                    let id = format!("{}-column", provider.descriptor().key);
+                    let column = objects
+                        .iter()
+                        .find(|object| object.source.id == id)
+                        .unwrap();
+                    assert_eq!(column.x, cursor, "{id}: {order:?}");
+                    cursor += column.width + 12.0;
+                    if provider == ProviderId::Claude && fable {
+                        let column = objects
+                            .iter()
+                            .find(|object| object.source.id == "fable-column")
+                            .unwrap();
+                        assert_eq!(column.x, cursor);
+                        cursor += column.width + 12.0;
+                    }
+                }
+                assert_eq!(cursor - 12.0 + 4.0, f64::from(width));
+            }
+        }
+    }
+    for object in &theme.surfaces[0].children {
+        if let SceneContent::Text { template, .. } = &object.content {
+            assert!(!template.starts_with("Ag "));
+            if object.id.contains("antigravity") && object.id.ends_with("label") {
+                assert!(template.starts_with("G "), "{}", object.id);
+            }
+        }
+    }
+}
+
+#[test]
 fn horizontal_fable_columns_follow_claude_visibility_and_usage_direction() {
     use crate::models::{UsageData, UsageLimit, UsageSection};
 

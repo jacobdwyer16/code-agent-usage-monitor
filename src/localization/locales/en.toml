@@ -467,3 +467,9 @@ muse_window_title = "Muse Usage Monitor"
 "Lock in taskbar" = "Lock in taskbar"
 "Keep the widget docked; never float automatically" = "Keep the widget docked; never float automatically"
 "Locked" = "Locked"
+
+"Up" = "Up"
+
+"Down" = "Down"
+
+"Use Up and Down to arrange the Columns widget. Fable stays beside Claude." = "Use Up and Down to arrange the Columns widget. Fable stays beside Claude."

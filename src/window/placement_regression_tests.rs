@@ -2,6 +2,7 @@ use super::*;
 
 fn state_for(theme: ThemeDocument, placement: PlacementOverride) -> AppState {
     AppState {
+        provider_order: ProviderId::ALL.to_vec(),
         hwnd: SendHwnd::from_hwnd(HWND::default()),
         taskbar_hwnd: None,
         tray_notify_hwnd: None,

@@ -1334,6 +1334,7 @@ pub struct DataContext {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeRuntime {
     providers: ProviderSet,
+    provider_order: [usize; 8],
     pub poll_ok: bool,
     pub has_error: bool,
     pub language: LanguageId,
@@ -1353,6 +1354,7 @@ impl Default for ThemeRuntime {
     fn default() -> Self {
         Self {
             providers: ProviderSet::default(),
+            provider_order: std::array::from_fn(|index| index),
             poll_ok: true,
             has_error: false,
             language: LanguageId::English,
@@ -1384,6 +1386,7 @@ impl ThemeRuntime {
     pub fn from_providers(providers: ProviderSet) -> Self {
         Self {
             providers,
+            provider_order: std::array::from_fn(|index| index),
             poll_ok: true,
             has_error: false,
             language: LanguageId::English,
@@ -1425,6 +1428,13 @@ impl ThemeRuntime {
 
     pub fn with_fable(mut self, show_fable: bool) -> Self {
         self.show_fable = show_fable;
+        self
+    }
+
+    pub fn with_provider_order(mut self, order: &[ProviderId]) -> Self {
+        for (index, provider) in order.iter().enumerate() {
+            self.provider_order[*provider as usize] = index;
+        }
         self
     }
 
@@ -1519,6 +1529,10 @@ impl DataContext {
         }
         for descriptor in PROVIDER_DESCRIPTORS {
             context.insert_string(&format!("{}.account.name", descriptor.key), "");
+            context.insert(
+                &format!("providers.{}.order", descriptor.key),
+                runtime.provider_order[descriptor.id as usize] as f64,
+            );
             context.insert(
                 &format!("providers.{}.enabled", descriptor.key),
                 runtime.provider_enabled(descriptor.id) as u8 as f64,

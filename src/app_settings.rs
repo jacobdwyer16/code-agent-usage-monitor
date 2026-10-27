@@ -29,6 +29,8 @@ pub const MAX_POLL_MINUTES: u32 = i32::MAX as u32 / POLL_1_MIN;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SettingsFile {
+    #[serde(default = "default_provider_order")]
+    pub provider_order: Vec<ProviderId>,
     #[serde(default)]
     pub accounts: crate::accounts::AccountSettings,
     #[serde(default, skip_serializing)]
@@ -124,6 +126,7 @@ pub struct FloatingHost {
 impl Default for SettingsFile {
     fn default() -> Self {
         Self {
+            provider_order: default_provider_order(),
             accounts: Default::default(),
             tray_offset: 0,
             taskbar_index: 0,
@@ -162,6 +165,13 @@ pub struct LegacyPlacement {
 
 impl SettingsFile {
     pub fn normalize(&mut self) {
+        let mut order = Vec::new();
+        for provider in self.provider_order.iter().copied().chain(ProviderId::ALL) {
+            if !order.contains(&provider) {
+                order.push(provider);
+            }
+        }
+        self.provider_order = order;
         self.accounts.claude.normalize();
         self.accounts.codex.normalize();
         if !(POLL_1_MIN..=MAX_POLL_MINUTES * POLL_1_MIN).contains(&self.poll_interval_ms)
@@ -257,6 +267,10 @@ impl SettingsFile {
         self.set_enabled_providers(providers);
         true
     }
+}
+
+fn default_provider_order() -> Vec<ProviderId> {
+    ProviderId::ALL.to_vec()
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -476,6 +490,36 @@ fn now_unix() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_order_migrates_normalizes_and_survives_round_trip() {
+        assert_eq!(
+            decode_settings("{}").unwrap().provider_order,
+            ProviderId::ALL
+        );
+        let mut settings =
+            decode_settings(r#"{"provider_order":["antigravity","codex","antigravity"]}"#).unwrap();
+        settings.normalize();
+        assert_eq!(
+            settings.provider_order,
+            [
+                ProviderId::Antigravity,
+                ProviderId::Codex,
+                ProviderId::Claude,
+                ProviderId::OpenCode,
+                ProviderId::Cursor,
+                ProviderId::Grok,
+                ProviderId::Copilot,
+                ProviderId::Muse,
+            ]
+        );
+        settings.provider_order.swap(0, 7);
+        let encoded = serde_json::to_string(&settings).unwrap();
+        assert_eq!(
+            decode_settings(&encoded).unwrap().provider_order,
+            settings.provider_order
+        );
+    }
 
     #[test]
     fn taskbar_lock_is_opt_in_and_survives_settings_round_trip() {

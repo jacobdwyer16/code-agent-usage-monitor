@@ -91,7 +91,7 @@
           "x": "13",
           "width": "canvas.width - 17",
           "height": "46",
-          "layout": "row",
+          "layout": "freeform",
           "gap": "12"
         },
         {
@@ -99,6 +99,7 @@
           "name": "claude column",
           "render": "providers.claude.enabled",
           "parent": "provider-row",
+          "x": "providers.codex.enabled * (providers.codex.order < providers.claude.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.claude.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.claude.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.claude.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.claude.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.claude.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.claude.order) * 165",
           "width": "141",
           "height": "46"
         },
@@ -579,6 +580,7 @@
           "name": "codex column",
           "render": "providers.codex.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.codex.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.codex.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.codex.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.codex.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.codex.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.codex.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.codex.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.codex.order) * 153",
           "width": "141",
           "height": "46"
         },
@@ -1059,6 +1061,7 @@
           "name": "antigravity column",
           "render": "providers.antigravity.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.antigravity.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.antigravity.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.antigravity.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.antigravity.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.antigravity.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.antigravity.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.antigravity.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.antigravity.order) * 153",
           "width": "141",
           "height": "46"
         },
@@ -1073,7 +1076,7 @@
           "height": "19",
           "content": {
             "type": "text",
-            "template": "Ag 5h",
+            "template": "G 5h",
             "font_family": "Segoe UI",
             "font_size": "12",
             "weight": "medium",
@@ -1191,7 +1194,7 @@
           "height": "19",
           "content": {
             "type": "text",
-            "template": "Ag 5h",
+            "template": "G 5h",
             "font_family": "Segoe UI",
             "font_size": "12",
             "weight": "medium",
@@ -1309,7 +1312,7 @@
           "height": "19",
           "content": {
             "type": "text",
-            "template": "Ag {antigravity.weekly.label}",
+            "template": "G {antigravity.weekly.label}",
             "font_family": "Segoe UI",
             "font_size": "12",
             "weight": "medium",
@@ -1427,7 +1430,7 @@
           "height": "19",
           "content": {
             "type": "text",
-            "template": "Ag {antigravity.weekly.label}",
+            "template": "G {antigravity.weekly.label}",
             "font_family": "Segoe UI",
             "font_size": "12",
             "weight": "medium",
@@ -1539,6 +1542,7 @@
           "name": "opencode column",
           "render": "providers.opencode.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.opencode.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.opencode.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.opencode.order) * 153 + providers.cursor.enabled * (providers.cursor.order < providers.opencode.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.opencode.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.opencode.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.opencode.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.opencode.order) * 153",
           "width": "153",
           "height": "46"
         },
@@ -2019,6 +2023,7 @@
           "name": "cursor column",
           "render": "providers.cursor.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.cursor.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.cursor.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.cursor.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.cursor.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.cursor.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.cursor.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.cursor.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.cursor.order) * 153",
           "width": "153",
           "height": "46"
         },
@@ -2499,6 +2504,7 @@
           "name": "grok column",
           "render": "providers.grok.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.grok.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.grok.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.grok.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.grok.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.grok.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.grok.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.grok.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.grok.order) * 153",
           "width": "153",
           "height": "46"
         },
@@ -2743,6 +2749,7 @@
           "name": "copilot column",
           "render": "providers.copilot.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.copilot.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.copilot.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.copilot.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.copilot.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.copilot.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.copilot.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.copilot.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.copilot.order) * 153",
           "width": "153",
           "height": "46"
         },
@@ -2987,6 +2994,7 @@
           "name": "muse column",
           "render": "providers.muse.enabled",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order < providers.muse.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.muse.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.muse.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.muse.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.muse.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.muse.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.muse.order) * 165 + (providers.claude.enabled && claude.model.fable.available) * (providers.claude.order < providers.muse.order) * 153",
           "width": "153",
           "height": "46"
         },
@@ -3467,6 +3475,7 @@
           "name": "fable column",
           "render": "(providers.claude.enabled && claude.model.fable.available)",
           "parent": "provider-row",
+          "x": "providers.claude.enabled * (providers.claude.order <= providers.claude.order) * 153 + providers.codex.enabled * (providers.codex.order < providers.claude.order) * 153 + providers.antigravity.enabled * (providers.antigravity.order < providers.claude.order) * 153 + providers.opencode.enabled * (providers.opencode.order < providers.claude.order) * 165 + providers.cursor.enabled * (providers.cursor.order < providers.claude.order) * 165 + providers.grok.enabled * (providers.grok.order < providers.claude.order) * 165 + providers.copilot.enabled * (providers.copilot.order < providers.claude.order) * 165 + providers.muse.enabled * (providers.muse.order < providers.claude.order) * 165",
           "width": "141",
           "height": "46"
         },

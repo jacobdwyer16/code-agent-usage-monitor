@@ -133,6 +133,7 @@ struct AppState {
     custom_theme_enabled: bool,
     usage_countdown: bool,
     show_fable: bool,
+    provider_order: Vec<ProviderId>,
     active_theme_path: Option<PathBuf>,
     active_theme: Option<ThemeDocument>,
     theme_clock_interval: Option<Duration>,
@@ -624,6 +625,7 @@ fn theme_runtime_from_state(state: &AppState) -> ThemeRuntime {
         .with_language(state.language)
         .with_countdown(state.usage_countdown)
         .with_fable(state.show_fable)
+        .with_provider_order(&state.provider_order)
         .with_nest(nest)
         .with_floating_card_opacity(opacity)
 }
@@ -2150,7 +2152,8 @@ pub fn run() {
             .with_poll_state(false, false)
             .with_language(language)
             .with_countdown(settings.usage_countdown)
-            .with_fable(settings.show_fable);
+            .with_fable(settings.show_fable)
+            .with_provider_order(&settings.provider_order);
         let (initial_width, initial_height) = active_theme
             .as_ref()
             .map(|theme| {
@@ -2247,6 +2250,7 @@ pub fn run() {
                 custom_theme_enabled,
                 usage_countdown: settings.usage_countdown,
                 show_fable: settings.show_fable,
+                provider_order: settings.provider_order.clone(),
                 active_theme_path,
                 active_theme,
                 theme_clock_interval,
@@ -2947,6 +2951,7 @@ fn reload_external_settings(hwnd: HWND) {
         state.providers = settings.enabled_providers();
         state.usage_countdown = settings.usage_countdown;
         state.show_fable = settings.show_fable;
+        state.provider_order = settings.provider_order.clone();
         update_configured_placement(
             state,
             settings.placement_override,

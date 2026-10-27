@@ -59,7 +59,13 @@ impl StudioApp {
                 );
             });
             section(ui, language.text("Providers"), |ui| {
-                for (index, descriptor) in PROVIDER_DESCRIPTORS.iter().enumerate() {
+                ui.weak(language.text(
+                    "Use Up and Down to arrange the Columns widget. Fable stays beside Claude.",
+                ));
+                let order = self.settings.provider_order.clone();
+                let mut move_provider = None;
+                for (index, provider) in order.iter().enumerate() {
+                    let descriptor = provider.descriptor();
                     if index > 0 {
                         setting_separator(ui);
                     }
@@ -69,6 +75,21 @@ impl StudioApp {
                         language.text(descriptor.display_name),
                         language.text(descriptor.settings_description),
                         |ui| {
+                            if ui
+                                .add_enabled(index > 0, egui::Button::new(language.text("Up")))
+                                .clicked()
+                            {
+                                move_provider = Some((index, index - 1));
+                            }
+                            if ui
+                                .add_enabled(
+                                    index + 1 < order.len(),
+                                    egui::Button::new(language.text("Down")),
+                                )
+                                .clicked()
+                            {
+                                move_provider = Some((index, index + 1));
+                            }
                             let mut enabled = self.settings.provider_enabled(descriptor.id);
                             if Toggle::new(&mut enabled)
                                 .labels(language.text("Enabled"), language.text("Disabled"))
@@ -97,6 +118,10 @@ impl StudioApp {
                             );
                         });
                     }
+                }
+                if let Some((from, to)) = move_provider {
+                    self.settings.provider_order.swap(from, to);
+                    changed = true;
                 }
             });
             section(ui, language.text("Display"), |ui| {

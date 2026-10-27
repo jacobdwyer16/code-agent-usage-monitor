@@ -79,6 +79,12 @@ Custom theme files are stored in:
 
 ## Choose providers and refresh usage
 
+Use **Up** and **Down** beside each provider under **Settings > Providers** to
+choose the left-to-right order in the **Columns** theme. The order saves
+automatically and survives restarts. Disabled providers keep their place for
+when you enable them again. The optional Fable column stays beside Claude.
+Other themes use the layout authored in Theme Studio.
+
 1. Sign in to the provider you want to monitor using its own app or CLI. See
    [Provider setup](README.md#provider-setup) for provider-specific requirements.
 2. Open **Settings** and find **Providers**. Enable the providers you want to

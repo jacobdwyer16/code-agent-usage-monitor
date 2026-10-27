@@ -45,12 +45,29 @@ pub(super) unsafe extern "system" fn wnd_proc(
         }
         WM_ERASEBKGND => LRESULT(1),
         WM_DISPLAYCHANGE | WM_DPICHANGED_MSG | WM_SETTINGCHANGE => {
+            // Native layout calls can deliver these while STATE is held.
+            // Queue only scalar values; WM_SETTINGCHANGE's string expires on return.
+            if let Err(error) = PostMessageW(
+                Some(hwnd),
+                native_interop::WM_APP_DISPLAY_CHANGE,
+                WPARAM(msg as usize),
+                LPARAM(wparam.0 as isize),
+            ) {
+                diagnose::log_error("unable to queue display notification", error);
+            }
+            LRESULT(0)
+        }
+        native_interop::WM_APP_DISPLAY_CHANGE => {
+            let source = wparam.0 as u32;
+            diagnose::log(format!(
+                "processing display notification source={source:#x}"
+            ));
             refresh_theme_host_geometry();
-            if msg == WM_DPICHANGED_MSG {
-                let new_dpi = (wparam.0 & 0xFFFF) as u32;
+            if source == WM_DPICHANGED_MSG {
+                let new_dpi = (lparam.0 & 0xFFFF) as u32;
                 CURRENT_DPI.store(new_dpi, Ordering::Relaxed);
             }
-            if msg == WM_SETTINGCHANGE {
+            if source == WM_SETTINGCHANGE {
                 check_theme_change();
                 check_language_change();
             }
@@ -963,6 +980,55 @@ pub(super) unsafe extern "system" fn wnd_proc(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_callbacks_return_while_state_is_locked_and_preserve_notifications() {
+        let state = lock_state();
+        let (completed, completion) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || unsafe {
+            let class = native_interop::wide_str("STATIC");
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                PCWSTR::from_raw(class.as_ptr()),
+                PCWSTR::null(),
+                WINDOW_STYLE::default(),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                None,
+                None,
+            )
+            .expect("create isolated display notification test window");
+            for (event, value) in [
+                (WM_DISPLAYCHANGE, 32),
+                (WM_DPICHANGED_MSG, 144 | (144 << 16)),
+                (WM_SETTINGCHANGE, 0),
+            ] {
+                assert_eq!(wnd_proc(hwnd, event, WPARAM(value), LPARAM(0)).0, 0);
+                let mut queued = MSG::default();
+                let found = PeekMessageW(
+                    &mut queued,
+                    Some(hwnd),
+                    native_interop::WM_APP_DISPLAY_CHANGE,
+                    native_interop::WM_APP_DISPLAY_CHANGE,
+                    PM_REMOVE,
+                )
+                .as_bool();
+                assert!(found, "display notification must be queued");
+                assert_eq!(queued.wParam.0, event as usize);
+                assert_eq!(queued.lParam.0, value as isize);
+            }
+            completed.send(()).unwrap();
+            let _ = DestroyWindow(hwnd);
+        });
+        let result = completion.recv_timeout(Duration::from_secs(2));
+        drop(state);
+        worker.join().expect("display callback test thread");
+        result.expect("display callbacks must return without waiting for STATE");
+    }
 
     #[test]
     fn tray_callbacks_return_while_state_is_locked_and_preserve_events() {
