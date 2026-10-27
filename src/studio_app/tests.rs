@@ -547,7 +547,10 @@ fn diagnostics_page_has_logging_controls_and_menu_version() {
         collect_text(&shape.shape, &mut text);
     }
     output.textures_delta.clear();
-    assert!(text.find("Assets").unwrap() < text.find("Diagnostics").unwrap());
+    assert!(text.find("Settings").unwrap() < text.find("Diagnostics").unwrap());
+    for hidden in ["Theme Studio", "Context Menus", "Assets"] {
+        assert!(!text.contains(hidden), "hidden dashboard option: {hidden}");
+    }
     assert!(text.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))));
     assert!(text.contains("Logging"));
     assert!(text.contains("Write diagnostic events to"));

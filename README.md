@@ -17,7 +17,7 @@ This is a fork of Code Zeno Pty Ltd's [Claude Code Usage Monitor](https://github
 - Paid credit tracking for Claude and Codex
 - Optional Claude Fable quota column, off by default; toggle it from the widget menu or **Settings > Display**
 - Taskbar docking with drag, snap, and lock; floating mode; multi-monitor; tray icons
-- Settings dashboard, Theme Studio, other built-in themes, and 14 languages
+- Settings and diagnostics dashboard, selectable themes, and 14 languages
 
 See the [user guide](USER_GUIDE.md) for settings and themes, and the [changelog](CHANGELOG.md) for history.
 

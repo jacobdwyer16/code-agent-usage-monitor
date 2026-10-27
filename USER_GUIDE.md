@@ -7,7 +7,7 @@ The instructions below use the app's English labels.
 ## Contents
 
 - [Open the dashboard](#open-the-dashboard)
-- [Duplicate and customise a built-in theme](#duplicate-and-customise-a-built-in-theme)
+- [Choose the widget appearance](#choose-the-widget-appearance)
 - [Choose providers and refresh usage](#choose-providers-and-refresh-usage)
 - [Show used or remaining allowance](#show-used-or-remaining-allowance)
 - [Windows VM testing for developers](#windows-vm-testing-for-developers)
@@ -27,55 +27,14 @@ code-agent-usage-monitor --dashboard
 For a portable download, run `.\code-agent-usage-monitor.exe --dashboard` from
 the folder containing the executable.
 
-## Duplicate and customise a built-in theme
+## Choose the widget appearance
 
-Built-in themes are read-only. Create an editable copy to make your own design;
-the original stays available to switch back to.
+The dashboard offers **Settings** and **Diagnostics**. Theme Studio, Context
+Menus, and Assets are hidden.
 
-### Create your copy
-
-1. Open **Theme Studio** from the dashboard's navigation.
-2. In the **Theme** dropdown at the top, select the theme you want to start from,
-   such as **Compact Fluent Quad**. Built-in themes are marked **(built-in)**.
-3. Click the toolbar's copy icon beside the theme dropdown. Hover over it to see
-   the **Duplicate...** tooltip. Use this top toolbar control to copy the whole
-   theme; the **Duplicate** control beneath the layer list copies a layer.
-4. In **Duplicate theme**, enter a name such as `My theme`, then click
-   **Create copy**.
-
-The app saves your copy, selects it in Theme Studio, and makes it the active
-theme. Its controls are now editable.
-
-### Make and save a change
-
-1. Select a layer in the tree on the left. Expand its arrow to find nested layers.
-2. Use the inspector on the right to edit the selected layer. Start with a small
-   change, such as a colour or text size, and check the preview in the centre.
-   **Appearance** contains appearance controls; **Positioning** contains layout
-   controls. The available fields depend on the selected layer.
-3. Click the toolbar's disk icon, with the **Save** tooltip, to save your changes
-   and apply them to the running widget.
-
-**Live apply** is disabled by default. With it disabled, edits update the Studio
-preview until you click **Save**. Enable it to save and apply each edit
-automatically. Enabling it also saves any changes already waiting in the editor.
-
-Use the toolbar's **Undo** and **Redo** icons, or **Ctrl+Z** and **Ctrl+Y**, to
-reverse or restore edits. With Live apply disabled, save again to apply an undo
-to the running widget. If you close the dashboard or switch themes with unsaved
-changes, choose **Save and continue**, **Discard changes**, or **Cancel**.
-
-### Switch back to a built-in theme
-
-Select the original theme from the **Theme** dropdown in Theme Studio. You can
-also choose it under **Settings > Appearance > Active theme**. Switching applies
-the selected theme; your saved custom copy remains available in the dropdown.
-
-Custom theme files are stored in:
-
-```text
-%APPDATA%\CodeAgentUsageMonitor\themes
-```
+Choose a saved theme under **Settings > Appearance > Active theme**. The
+selection applies immediately. Existing themes and assets remain available to
+the widget.
 
 ## Choose providers and refresh usage
 
@@ -83,7 +42,7 @@ Use **Up** and **Down** beside each provider under **Settings > Providers** to
 choose the left-to-right order in the **Columns** theme. The order saves
 automatically and survives restarts. Disabled providers keep their place for
 when you enable them again. The optional Fable column stays beside Claude.
-Other themes use the layout authored in Theme Studio.
+Other themes retain their saved layouts.
 
 1. Sign in to the provider you want to monitor using its own app or CLI. See
    [Provider setup](README.md#provider-setup) for provider-specific requirements.

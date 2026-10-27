@@ -999,6 +999,9 @@ impl StudioApp {
     pub(super) fn shell(&mut self, ui: &mut egui::Ui) {
         const GITHUB_URL: &str = "https://github.com/jacobdwyer16/code-agent-usage-monitor";
 
+        if [Page::Studio, Page::ContextMenus, Page::Assets].contains(&self.page) {
+            self.page = Page::Settings;
+        }
         let language = self.language();
         let full_height = ui.available_height();
         ui.horizontal(|ui| {
@@ -1024,20 +1027,6 @@ impl StudioApp {
                                 Page::Settings,
                                 language.text("Settings"),
                             );
-                            nav(
-                                ui,
-                                &mut self.page,
-                                Page::Studio,
-                                language.text("Theme Studio"),
-                            );
-                            nav(
-                                ui,
-                                &mut self.page,
-                                Page::ContextMenus,
-                                language.text("Context Menus"),
-                            );
-                            nav(ui, &mut self.page, Page::Assets, language.text("Assets"));
-                            ui.separator();
                             nav(
                                 ui,
                                 &mut self.page,

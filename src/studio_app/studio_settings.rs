@@ -6,7 +6,6 @@ impl StudioApp {
         let language = self.language();
         let mut changed = false;
         let mut requested_theme = None;
-        let mut open_theme_studio = false;
         let themes = self.available_themes();
         if let Some(error) = &self.settings_error {
             ui.colored_label(egui::Color32::from_rgb(196, 64, 64), error);
@@ -188,38 +187,20 @@ impl StudioApp {
                 );
             });
             section(ui, language.text("Appearance"), |ui| {
-                setting_row(
-                    ui,
-                    language.text("Active theme"),
-                    language.text("The widget is managed in Theme Studio"),
-                    |ui| {
-                        Dropdown::from_id_salt("active_theme")
-                            .width(220.0)
-                            .selected_text(&self.theme.name)
-                            .show_ui(ui, |ui| {
-                                for theme in themes.iter() {
-                                    let selected =
-                                        self.theme_path.as_deref() == Some(theme.path.as_path());
-                                    if dropdown_selectable_label(ui, selected, &theme.label)
-                                        .clicked()
-                                    {
-                                        requested_theme = Some(theme.path.clone());
-                                    }
+                setting_row(ui, language.text("Active theme"), "", |ui| {
+                    Dropdown::from_id_salt("active_theme")
+                        .width(220.0)
+                        .selected_text(&self.theme.name)
+                        .show_ui(ui, |ui| {
+                            for theme in themes.iter() {
+                                let selected =
+                                    self.theme_path.as_deref() == Some(theme.path.as_path());
+                                if dropdown_selectable_label(ui, selected, &theme.label).clicked() {
+                                    requested_theme = Some(theme.path.clone());
                                 }
-                            });
-                    },
-                );
-                setting_separator(ui);
-                setting_row(
-                    ui,
-                    language.text("Theme editor"),
-                    language.text("Create and edit themes"),
-                    |ui| {
-                        if ui.button(language.text("Open Theme Studio")).clicked() {
-                            open_theme_studio = true;
-                        }
-                    },
-                );
+                            }
+                        });
+                });
             });
         });
         if changed {
@@ -237,9 +218,6 @@ impl StudioApp {
         }
         if let Some(path) = requested_theme {
             self.request_activate_theme(path);
-        }
-        if open_theme_studio {
-            self.page = Page::Studio;
         }
     }
 }
